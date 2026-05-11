@@ -24,7 +24,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 SECRET_KEY = os.getenv('SECRET_KEY')
 
 # Ojo acá: os.getenv devuelve un string, por lo que 'True' texto hay que evaluarlo
-DEBUG = os.getenv('DEBUG') == 'True'
+DEBUG = os.getenv('DEBUG') == 'False'
 
 ALLOWED_HOSTS = []
 
@@ -41,7 +41,8 @@ INSTALLED_APPS = [
     'rest_framework',
     'rest_framework.authtoken',
     'django_filters',
-    'viajes',
+    'apps.viajes',
+    'apps.usuarios'
 ]
 
 MIDDLEWARE = [
@@ -111,6 +112,8 @@ AUTH_PASSWORD_VALIDATORS = [
 
 # Internationalization
 # https://docs.djangoproject.com/en/4.2/topics/i18n/
+
+AUTH_USER_MODEL = 'usuarios.Usuario'
 
 LANGUAGE_CODE = 'es-ar'
 

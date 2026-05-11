@@ -1,5 +1,4 @@
 from django.db import models
-from django.contrib.auth.models import User
 from datetime import timedelta
 
 # 1. Configuración de la Terminal (Usaremos un modelo de fila única)
@@ -29,7 +28,7 @@ class Empleado(models.Model):
         ('VENTANILLA', 'Empleado de Ventanilla'),
     ]
     
-    usuario = models.OneToOneField(User, on_delete=models.CASCADE)
+    usuario = models.OneToOneField('usuarios.Usuario', on_delete=models.CASCADE)
     empresa = models.ForeignKey(Empresa, on_delete=models.CASCADE, related_name='empleados')
     rol = models.CharField(max_length=20, choices=ROLES, default='VENTANILLA')
 
@@ -69,7 +68,7 @@ class Viaje(models.Model):
 
 class Pasajero(models.Model):
     # Enganchamos el pasajero al sistema de login de Django
-    usuario = models.OneToOneField(User, on_delete=models.CASCADE, related_name='perfil_pasajero')
+    usuario = models.OneToOneField('usuarios.Usuario', on_delete=models.CASCADE, related_name='perfil_pasajero')
     
     # Datos extra que necesitamos para la app
     telefono = models.CharField(max_length=20, unique=True, help_text="Número para notificaciones")
