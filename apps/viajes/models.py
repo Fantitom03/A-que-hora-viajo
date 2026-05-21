@@ -35,6 +35,16 @@ class Empleado(models.Model):
     def __str__(self):
         return f"{self.usuario.username} ({self.rol} en {self.empresa.nombre})"
 
+# 4. Lugares (Geolocalizados)
+class Ubicacion(models.Model):
+    nombre_oficial = models.CharField(max_length=200, unique=True)
+    latitud = models.DecimalField(max_digits=9, decimal_places=6)
+    longitud = models.DecimalField(max_digits=9, decimal_places=6)
+    
+    def __str__(self):
+        return self.nombre_oficial
+
+
 
 # 4. El Viaje (El núcleo del sistema)
 class Viaje(models.Model):
@@ -45,8 +55,6 @@ class Viaje(models.Model):
     ]
 
     empresa = models.ForeignKey(Empresa, on_delete=models.CASCADE, related_name='viajes')
-    destino = models.CharField(max_length=150)
-    precio = models.DecimalField(max_digits=10, decimal_places=2)
     
     # Tiempos
     fecha = models.DateField()
@@ -65,6 +73,17 @@ class Viaje(models.Model):
     def __str__(self):
         return f"{self.empresa.nombre} -> {self.destino} ({self.fecha} {self.horario_embarcacion})"
 
+
+# 3. Las Paradas (Intermedia entre Viaje y Ubicacion)
+class Parada(models.Model):
+    viaje = models.ForeignKey(Viaje, on_delete=models.CASCADE, related_name='paradas')
+    ubicacion = models.ForeignKey(Ubicacion, on_delete=models.PROTECT) # PROTECT evita que borres un lugar si un viaje lo usa
+    orden = models.PositiveIntegerField() # Para saber qué parada es la 1ra, 2da, etc.
+    horario_estimado = models.TimeField()
+    precio = models.DecimalField(max_digits=8, decimal_places=2) # Precio para esa parada específica
+
+    class Meta:
+        ordering = ['orden'] # Siempre se listan en orden de ruta
 
 class Pasajero(models.Model):
     # Enganchamos el pasajero al sistema de login de Django
