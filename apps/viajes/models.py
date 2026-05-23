@@ -16,6 +16,7 @@ class Terminal(models.Model):
 class Empresa(models.Model):
     nombre = models.CharField(max_length=100, unique=True)
     ventanilla = models.PositiveIntegerField()
+    terminal = models.ForeignKey(Terminal, on_delete=models.CASCADE, related_name = 'empresas', null=True, blank=True)
 
     def __str__(self):
         return self.nombre
@@ -54,10 +55,20 @@ class Viaje(models.Model):
         ('DEMORADO', 'Demorado'),
     ]
 
+    DIAS = [
+        ('LUNES', 'Lunes'),
+        ('MARTES', 'Martes'),
+        ('MIERCOLES', 'Miércoles'),
+        ('JUEVES', 'Jueves'),
+        ('VIERNES', 'Viernes'),
+        ('SABADO', 'Sábado'),
+        ('DOMINGO', 'Domingo')
+    ]
+
     empresa = models.ForeignKey(Empresa, on_delete=models.CASCADE, related_name='viajes')
     
     # Tiempos
-    fecha = models.DateField()
+    dias_operativos = models.CharField(max_length=100)
     horario_embarcacion = models.TimeField()
     duracion = models.DurationField(help_text="Formato: HH:MM:SS")
     
@@ -71,7 +82,14 @@ class Viaje(models.Model):
     motivo_demora = models.CharField(max_length=255, blank=True, null=True)
 
     def __str__(self):
-        return f"{self.empresa.nombre} -> {self.destino} ({self.fecha} {self.horario_embarcacion})"
+        ultima_parada = self.paradas.order_by('-orden').first()
+
+        destino = (
+            ultima_parada.ubicacion.nombre_oficial
+            if ultima_parada else "Sin destino"
+        )
+
+        return f"{self.empresa.nombre} -> {destino}"
 
 
 # 3. Las Paradas (Intermedia entre Viaje y Ubicacion)
@@ -79,7 +97,7 @@ class Parada(models.Model):
     viaje = models.ForeignKey(Viaje, on_delete=models.CASCADE, related_name='paradas')
     ubicacion = models.ForeignKey(Ubicacion, on_delete=models.PROTECT) # PROTECT evita que borres un lugar si un viaje lo usa
     orden = models.PositiveIntegerField() # Para saber qué parada es la 1ra, 2da, etc.
-    horario_estimado = models.TimeField()
+    tiempo_desde_salida = models.DurationField()
     precio = models.DecimalField(max_digits=8, decimal_places=2) # Precio para esa parada específica
 
     class Meta:
