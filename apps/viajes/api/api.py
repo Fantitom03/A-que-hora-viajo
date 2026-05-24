@@ -1,7 +1,7 @@
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import IsAuthenticated, IsAdminUser
 from django.utils import timezone
 from datetime import datetime, date
 import requests
@@ -9,36 +9,113 @@ import requests
 from ..models import Terminal, Empresa, Empleado, Pasajero, Viaje, Parada, Ubicacion
 from .serializers import (TerminalSerializer, EmpresaSerializer, EmpleadoSerializer, 
                           PasajeroSerializer, ViajeSerializer, ParadaSerializer, UbicacionSerializer)
-from .permissions import EsPersonalEmpresaOReadOnly
+from .permissions import EsPersonalEmpresaOReadOnly, EsEncargadoOSuperuser, EsEmpleadoOSuperuserOReadOnly, EsPasajeroOInvitado
+
+from django.contrib.auth import get_user_model
+UsuarioBase = get_user_model()
 
 # --- Vistas Básicas ---
 
 class TerminalViewSet(viewsets.ModelViewSet):
     queryset = Terminal.objects.all()
     serializer_class = TerminalSerializer
+    permission_classes = [IsAdminUser]
 
 class EmpresaViewSet(viewsets.ModelViewSet):
     queryset = Empresa.objects.all()
     serializer_class = EmpresaSerializer
+    permission_classes = [IsAdminUser]
 
-class EmpleadoViewSet(viewsets.ModelViewSet):
-    queryset = Empleado.objects.all()
-    serializer_class = EmpleadoSerializer
-
-class PasajeroViewSet(viewsets.ModelViewSet):
-    queryset = Pasajero.objects.all()
-    serializer_class = PasajeroSerializer
 
 class ParadaViewSet(viewsets.ModelViewSet):
     queryset = Parada.objects.all()
     serializer_class = ParadaSerializer
+    permission_classes = [EsPersonalEmpresaOReadOnly]
 
 # --- Vistas Complejas ---
+
+class PasajeroViewSet(viewsets.ModelViewSet):
+    serializer_class = PasajeroSerializer
+    permission_classes = [EsPasajeroOInvitado]
+
+    def get_queryset(self):
+        user = self.request.user
+        if not user or not user.is_authenticated:
+            return Pasajero.objects.none()
+        if user.is_superuser:
+            return Pasajero.objects.all() 
+        return Pasajero.objects.filter(usuario=user)
+
+    def create(self, request, *args, **kwargs):
+        # 1. Atrapamos el DNI también
+        username = request.data.get('username')
+        dni = request.data.get('dni')  # <--- ¡NUEVO! Atrapamos el DNI
+        password = request.data.get('password')
+        first_name = request.data.get('first_name', '')
+        last_name = request.data.get('last_name', '')
+        telefono = request.data.get('telefono')
+
+        # Exigimos el DNI en la validación
+        if not username or not password or not telefono or not dni:
+            return Response({"error": "username, dni, password y telefono son obligatorios."}, status=status.HTTP_400_BAD_REQUEST)
+
+        UsuarioBase = get_user_model()
+        
+        # Chequeamos si el Username O el DNI ya existen
+        if UsuarioBase.objects.filter(username=username).exists() or UsuarioBase.objects.filter(dni=dni).exists():
+            return Response({"error": "Este usuario o DNI ya está registrado."}, status=status.HTTP_400_BAD_REQUEST)
+
+        # 2. Pasamos el DNI a la creación del usuario base
+        nuevo_usuario = UsuarioBase.objects.create_user(
+            username=username,
+            dni=dni,       # <--- ¡NUEVO! Lo guardamos en la BD
+            password=password,
+            first_name=first_name,
+            last_name=last_name
+        )
+        
+        pasajero = Pasajero.objects.create(usuario=nuevo_usuario, telefono=telefono)
+        
+        serializer = self.get_serializer(pasajero)
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+    
+
+
+
+class EmpleadoViewSet(viewsets.ModelViewSet):
+    serializer_class = EmpleadoSerializer
+    permission_classes = [EsEncargadoOSuperuser]
+
+    def get_queryset(self):
+        # El Superadmin ve todo. El Encargado solo ve a la gente de su empresa.
+
+        user = self.request.user
+        if user.is_superuser:
+            return Empleado.objects.all()
+        if hasattr(user, 'empleado'):
+            return Empleado.objects.filter(empresa=user.empleado.empresa)
+        return Empleado.objects.none()
+
+    def perform_create(self, serializer):
+        # Forzamos a que el nuevo empleado se cree dentro de la empresa del Encargado.
+        # Si lo crea el Superadmin, respeta la empresa que haya elegido en el JSON.
+
+        user = self.request.user
+        if hasattr(user, 'empleado'):
+            serializer.save(empresa=user.empleado.empresa)
+        else:
+            serializer.save()
+
+
 
 class UbicacionViewSet(viewsets.ModelViewSet):
     queryset = Ubicacion.objects.all()
     serializer_class = UbicacionSerializer
-    
+    # Los empleados pueden crear ubicaciones o los superusuarios, pero los pasajeros solo pueden leerlas. 
+    # Esto es para asegurar que solo el personal autorizado pueda agregar o modificar ubicaciones, mientras que los pasajeros pueden consultar la información sin riesgo de alterarla.
+    permission_classes = [EsEmpleadoOSuperuserOReadOnly]
+
+
     def create(self, request, *args, **kwargs):
         # Integración con Nominatim para validar y corregir la ubicación ingresada por el usuario. Si el lugar no se encuentra, se devuelve un error.
         nombre_buscado = request.data.get('nombre_oficial')
@@ -70,6 +147,8 @@ class UbicacionViewSet(viewsets.ModelViewSet):
                 return Response({'error': 'La ubicación no pudo ser encontrada.'}, status=400)
         except requests.exceptions.RequestException:
             return Response({'error': 'Fallo la conexión con el servidor de mapas.'}, status=503)
+
+
 
 
 class ViajeViewSet(viewsets.ModelViewSet):

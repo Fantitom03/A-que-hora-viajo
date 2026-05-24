@@ -1,177 +1,224 @@
+import requests
 from rest_framework import serializers
+from datetime import datetime, date
+from django.conf import settings
 from ..models import Terminal, Empresa, Empleado, Pasajero, Viaje, Parada, Ubicacion
+from django.contrib.auth import get_user_model
+UsuarioBase = get_user_model()
+
+# --- Modelos Base ---
 
 class TerminalSerializer(serializers.ModelSerializer):
     class Meta:
-        model= Terminal
+        model = Terminal
         fields = ['nombre', 'cantidad_plataformas']
+
 
 class EmpresaSerializer(serializers.ModelSerializer):
     class Meta: 
-        model= Empresa
+        model = Empresa
         fields = ['nombre', 'ventanilla', 'terminal']
 
+    # Si la empresa tiene una terminal asignada, en la representación se muestra el nombre de la terminal en lugar del ID
     def to_representation(self, instance):
         representation = super().to_representation(instance)
-
-        representation['terminal'] = {
-            'nombre_terminal' : instance.terminal.nombre
-        }
-
+        if instance.terminal:
+            representation['terminal'] = {'nombre_terminal': instance.terminal.nombre}
         return representation
 
-    def validate_ventanilla(self,data):
+    # Validación ventanilla (debe ser mayor a 0)
+    def validate_ventanilla(self, data):
         if data <= 0:
             raise serializers.ValidationError("El número de ventanilla debe ser mayor a 0")
         return data
     
+    # Validación de duplicidad de ventanilla en la misma terminal
     def validate(self, data):
         terminal = data.get('terminal')
         ventanilla = data.get('ventanilla')
-
-        existe = Empresa.objects.filter(
-            terminal = terminal,
-            ventanilla = ventanilla
-        ).exists()
-
-        if existe:
+        if Empresa.objects.filter(terminal=terminal, ventanilla=ventanilla).exists():
             raise serializers.ValidationError("Ya existe una empresa usando esa ventanilla en esta terminal")
-
         return data
 
 class EmpleadoSerializer(serializers.ModelSerializer):
     class Meta:
-        model= Empleado
+        model = Empleado
         fields = ['usuario', 'empresa', 'rol']
 
+    # En la representación del empleado, se muestra el username del usuario asociado y el nombre de la empresa en lugar de sus IDs. 
+    # Si agregaste el campo 'dni' al modelo custom User, también puedes incluirlo aquí.
     def to_representation(self, instance):
         representation = super().to_representation(instance)
-
         representation['usuario'] = {
-            'username' : instance.usuario.username,
-            'dni' : instance.usuario.dni
+            'username': instance.usuario.username,
+            # 'dni': instance.usuario.dni  # Descomentar si agregaste el campo dni a tu modelo custom User
         }
-
-        representation['empresa'] = {
-            'nombre empresa' : instance.empresa.nombre
-        }
-
+        representation['empresa'] = {'nombre_empresa': instance.empresa.nombre}
         return representation
 
 class PasajeroSerializer(serializers.ModelSerializer):
+    # Declaramos los campos planos (saqué el 'source' porque los vamos a manejar manualmente en el create())
+    username = serializers.CharField(write_only=True)
+    password = serializers.CharField(write_only=True, style={'input_type': 'password'})
+    first_name = serializers.CharField(write_only=True)
+    last_name = serializers.CharField(write_only=True)
+
     class Meta:
         model = Pasajero
-        fields = ['usuario', 'telefono']
+        fields = ['id', 'username', 'password', 'first_name', 'last_name', 'telefono']
 
+    def create(self, validated_data):
+        # 1. Sacamos los campos sueltos que vinieron en la raíz del JSON
+        username = validated_data.pop('username')
+        password = validated_data.pop('password')
+        first_name = validated_data.pop('first_name')
+        last_name = validated_data.pop('last_name')
+        
+        # 2. Creamos el usuario base encriptando su contraseña
+        nuevo_usuario = UsuarioBase.objects.create_user(
+            username=username,
+            password=password,
+            first_name=first_name,
+            last_name=last_name
+        )
+        
+        # 3. Creamos el perfil del pasajero atado a ese usuario
+        pasajero = Pasajero.objects.create(usuario=nuevo_usuario, **validated_data)
+        return pasajero
+
+    # En la representación del pasajero, se muestra el username y el nombre completo del usuario asociado en lugar de su ID.
     def to_representation(self, instance):
         representation = super().to_representation(instance)
-
-        representation['usuario'] = {
-            'username' : instance.usuario.username,
-            'dni' : instance.usuario.dni
-        }
-
-        return representation
-    
-class ViajeSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = Viaje
-        fields = ['empresa', 'dias_operativos', 'horario_embarcacion', 'duracion', 'plataformas_asignadas', 'estado', 'demora', 'motivo_demora']
-        read_only_fields = ['estado', 'demora', 'motivo_demora']
-
-
-        def validate_dias_operativos(self, data):
-            dias_validos = ['LUNES', 'MARTES', 'MIERCOLES', 'JUEVES', 'VIERNES', 'SABADO', 'DOMINGO']
-
-            dias = [d.strip() for d in data.split(',')]
-
-            for dia in dias:
-                if dia not in dias_validos:
-                    raise serializers.ValidationError(f"{dia} no es un dia valido")
-            
-            return data
         
-        def validate_duracion(sefl,data):
-            if data.total_seconds() <= 0:
-                raise serializers.ValidationError("La duracion debe ser mayor a cero")
-            
-            return data
-       
-        def validate(self,data):
-            plataforma = data.get('plataformas_asignadas')
-            horario = data.get('horario_embarcacion')
-            dias = data.get('dias_operativos')
+        representation['usuario'] = {
+            'username': instance.usuario.username,
+            'nombre_completo': f"{instance.usuario.first_name} {instance.usuario.last_name}"
+        }
+        
+        return representation
 
-            existe = Viaje.objects.filter(
-                plataformas_asignadas = plataforma,
-                horario_embarcacion = horario,
-                dias_operativos = dias
-            ).exists()
 
-            if existe:
-                raise serializers.ValidationError("Ya existe un viaje usando esa plataforma, en el mismo horario y día")
-            
-            return data
+# --- Modelos Clave del Sistema ---
+    
+class UbicacionSerializer(serializers.ModelSerializer):
+    clima = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Ubicacion
+        fields = ['id', 'nombre_oficial', 'latitud', 'longitud', 'clima']
+
+    def get_clima(self, obj):
+        # Consumo de la API de OpenWeatherMap para obtener el clima actual basado en latitud y longitud
+        url = "https://api.openweathermap.org/data/2.5/weather"
+        api_key = getattr(settings, 'OPENWEATHER_API_KEY', '')
+        params = {'lat': obj.latitud, 'lon': obj.longitud, 'appid': api_key, 'units': 'metric', 'lang': 'es'}
+        try:
+            response = requests.get(url, params=params, timeout=3)
+            if response.status_code == 200:
+                data = response.json()
+                return {'temperatura': data['main']['temp'], 'descripcion': data['weather'][0]['description']}
+        except requests.exceptions.RequestException:
+            return {'error': 'Servicio de clima no disponible'}
+        return {'info': 'No disponible'}
+
+    # Al interceptar la validación, redondeamos la latitud y longitud a 6 decimales para asegurar el formato correcto, y validamos que estén dentro de los rangos permitidos.
+    def validate_latitud(self, value):
+        value = round(float(value), 6)
+        if value < -90 or value > 90:
+            raise serializers.ValidationError("Latitud inválida")
+        return value
+    
+    def validate_longitud(self, value):
+        value = round(float(value), 6)
+        if value < -180 or value > 180:
+            raise serializers.ValidationError("Longitud inválida")
+        return value
 
 
 class ParadaSerializer(serializers.ModelSerializer):
+    ubicacion_detalles = UbicacionSerializer(source='ubicacion', read_only=True)
+    horario_estimado_parada = serializers.SerializerMethodField()
+
     class Meta:
         model = Parada
-        fields = ['viaje', 'ubicacion', 'orden', 'tiempo_desde_salida', 'precio']
+        fields = ['id', 'viaje', 'ubicacion', 'ubicacion_detalles', 'orden', 'tiempo_desde_salida', 'precio', 'horario_estimado_parada']
 
-    def validate_orden(self,data):
-        if data <= 0:
-            raise serializers.ValidationError("El orden debe ser mayor a 0")
-        
+    # Lógica para calcular el horario estimado de llegada a esta parada, sumando el tiempo desde la salida al horario de embarcación del viaje, 
+    # y considerando las demoras informadas por ventanilla.
+    def get_horario_estimado_parada(self, obj):
+        viaje = obj.viaje
+        base_datetime = datetime.combine(date.today(), viaje.horario_embarcacion)
+        resultado = base_datetime + obj.tiempo_desde_salida + viaje.demora
+        return resultado.time().strftime("%H:%M")
+
+    # Validacion de orden de parada (debe ser mayor a 0)
+    def validate_orden(self, data):
+        if data <= 0: raise serializers.ValidationError("El orden debe ser mayor a 0")
         return data
 
+    # Validacion de precio
     def validate_precio(self, data):
-        if data <= 0:
-            raise serializers.ValidationError("El precio debe ser mayor a 0")
-
+        if data <= 0: raise serializers.ValidationError("El precio debe ser mayor a 0")
         return data
     
-    def validate_tiempo_desde_salida(self,data):
-        if data.total_seconds() < 0:
-            raise serializers.ValidationError("El tiempo no puede ser negativo")
-        
+    # Validacion de tiempo desde salida (no puede ser negativo)
+    def validate_tiempo_desde_salida(self, data):
+        if data.total_seconds() < 0: raise serializers.ValidationError("El tiempo no puede ser negativo")
         return data
     
+    # Validacion de duplicidad de orden y ubicación en el mismo viaje
     def validate(self, data):
-        existe = Parada.objects.filter(
-            viaje=data['viaje'],
-            orden=data['orden']
-        ).exists()
-
-        if existe:
+        # Valida que no se repita el orden ni la ubicación en el mismo viaje
+        if Parada.objects.filter(viaje=data['viaje'], orden=data['orden']).exists():
             raise serializers.ValidationError("Ya existe una parada con ese orden en el viaje")
-        
+        if Parada.objects.filter(viaje=data['viaje'], ubicacion=data['ubicacion']).exists():
+            raise serializers.ValidationError("La ubicación ya existe en este viaje")
         return data
 
+
+class ViajeSerializer(serializers.ModelSerializer):
+    paradas = ParadaSerializer(many=True, read_only=True)
+    empresa_nombre = serializers.CharField(source='empresa.nombre', read_only=True)
+    horario_llegada_final = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Viaje
+        fields = '__all__'
+        read_only_fields = ['empresa', 'estado', 'demora', 'motivo_demora']
+
+    def get_horario_llegada_final(self, obj):
+        base_datetime = datetime.combine(date.today(), obj.horario_embarcacion)
+        resultado = base_datetime + obj.duracion + obj.demora
+        return resultado.time().strftime("%H:%M")
+
+    # Validacion de días operativos
+    def validate_dias_operativos(self, data):
+        dias_validos = ['LUNES', 'MARTES', 'MIERCOLES', 'JUEVES', 'VIERNES', 'SABADO', 'DOMINGO']
+        # 'data' ya es una lista gracias a ArrayField, no hace falta el split(',')
+        for dia in data:
+            if dia.upper() not in dias_validos:
+                raise serializers.ValidationError(f"{dia} no es un día válido")
+        return data
+    
+    # Validación de duración
+    def validate_duracion(self, data):
+        if data.total_seconds() <= 0:
+            raise serializers.ValidationError("La duración debe ser mayor a cero")
+        return data
+    
+    # Validación de horario de embarcación
     def validate(self, data):
-        existe = Parada.objects.filter(
-            viaje=data['viaje'],
-            ubicacion=data['ubicacion']
+        plataforma = data.get('plataformas_asignadas')
+        horario = data.get('horario_embarcacion')
+        dias = data.get('dias_operativos')
+        
+        # Validación de duplicidad en la misma plataforma/horario
+        existe = Viaje.objects.filter(
+            plataformas_asignadas=plataforma,
+            horario_embarcacion=horario,
+            dias_operativos=dias
         ).exists()
 
         if existe:
-            raise serializers.ValidationError("La ubicacion ya existe en este viaje")
-        
-        return data
-
-class UbicacionSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = Ubicacion
-        fields = ['nombre_oficial', 'latitud', 'longitud']
-
-    def validate_latitud(self,data):
-        if data < -90 or data > 90:
-            raise serializers.ValidationError("Latitud invalida")
-        
-        return data
-    
-    def validate_longitud(seld,data):
-        if data < -180 or data > 180:
-            raise serializers.ValidationError("Longitud invalida")
-        
+            raise serializers.ValidationError("Ya existe un viaje usando esa plataforma, en el mismo horario y días")
         return data
