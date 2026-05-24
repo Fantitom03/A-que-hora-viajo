@@ -24,7 +24,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 SECRET_KEY = os.getenv('SECRET_KEY')
 
 # Ojo acá: os.getenv devuelve un string, por lo que 'True' texto hay que evaluarlo
-DEBUG = os.getenv('DEBUG') == 'False'
+DEBUG = os.getenv('DEBUG') == 'True'
 
 ALLOWED_HOSTS = []
 
@@ -38,9 +38,13 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+
+    #Herramientas de Django REST Framework y filtros
     'rest_framework',
     'rest_framework.authtoken',
     'django_filters',
+    
+    # Mis apps
     'apps.viajes',
     'apps.usuarios'
 ]
@@ -146,4 +150,9 @@ REST_FRAMEWORK = {
     ],
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
     'PAGE_SIZE': 10,
+    'DEFAULT_AUTHENTICATION_CLASSES': (
+        'rest_framework_simplejwt.authentication.JWTAuthentication',
+    ),
 }
+
+OPENWEATHER_API_KEY = os.getenv('OPENWEATHER_API_KEY')

@@ -1,5 +1,6 @@
 from django.db import models
 from datetime import timedelta
+from django.contrib.postgres.fields import ArrayField
 
 # 1. Configuración de la Terminal (Usaremos un modelo de fila única)
 class Terminal(models.Model):
@@ -36,7 +37,7 @@ class Empleado(models.Model):
     def __str__(self):
         return f"{self.usuario.username} ({self.rol} en {self.empresa.nombre})"
 
-# 4. Lugares (Geolocalizados)
+# 5. Lugares (Geolocalizados)
 class Ubicacion(models.Model):
     nombre_oficial = models.CharField(max_length=200, unique=True)
     latitud = models.DecimalField(max_digits=9, decimal_places=6)
@@ -47,7 +48,7 @@ class Ubicacion(models.Model):
 
 
 
-# 4. El Viaje (El núcleo del sistema)
+# 6. El Viaje (El núcleo del sistema)
 class Viaje(models.Model):
     ESTADOS = [
         ('A_TIEMPO', 'A tiempo'),
@@ -66,16 +67,19 @@ class Viaje(models.Model):
     ]
 
     empresa = models.ForeignKey(Empresa, on_delete=models.CASCADE, related_name='viajes')
+
+
     
     # Tiempos
-    dias_operativos = models.CharField(max_length=100)
     horario_embarcacion = models.TimeField()
-    duracion = models.DurationField(help_text="Formato: HH:MM:SS")
+    duracion = models.DurationField(help_text="Duración total del viaje completo")
+
+    # Optimizados con ArrayField gracias a PostgreSQL
+    dias_operativos = ArrayField(models.CharField(max_length=15, choices=DIAS), blank=True, null=True)
     
-    # Como SQLite no soporta ArrayField (solo PostgreSQL), guardamos las plataformas 
-    # como un texto separado por comas (Ej: "12, 13")
-    plataformas_asignadas = models.CharField(max_length=50, blank=True, null=True) 
-    
+    # Plataformas asignadas (si se asignan manualmente, sino se asignan automáticamente al crear el viaje)
+    plataformas_asignadas = ArrayField(models.PositiveIntegerField(), blank=True, null=True)
+
     # Demoras y Estado
     estado = models.CharField(max_length=20, choices=ESTADOS, default='A_TIEMPO')
     demora = models.DurationField(default=timedelta(minutes=0))
@@ -92,7 +96,7 @@ class Viaje(models.Model):
         return f"{self.empresa.nombre} -> {destino}"
 
 
-# 3. Las Paradas (Intermedia entre Viaje y Ubicacion)
+# 7. Las Paradas (Intermedia entre Viaje y Ubicacion)
 class Parada(models.Model):
     viaje = models.ForeignKey(Viaje, on_delete=models.CASCADE, related_name='paradas')
     ubicacion = models.ForeignKey(Ubicacion, on_delete=models.PROTECT) # PROTECT evita que borres un lugar si un viaje lo usa
