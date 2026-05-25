@@ -121,7 +121,7 @@ AUTH_USER_MODEL = 'usuarios.Usuario'
 
 LANGUAGE_CODE = 'es-ar'
 
-TIME_ZONE = 'America/Argentina'
+TIME_ZONE = 'America/Argentina/Catamarca'
 
 USE_I18N = True
 

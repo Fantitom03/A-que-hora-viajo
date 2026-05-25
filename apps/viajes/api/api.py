@@ -1,7 +1,7 @@
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
-from rest_framework.permissions import IsAuthenticated, IsAdminUser
+from rest_framework.permissions import IsAuthenticated, IsAdminUser, AllowAny
 from django.utils import timezone
 from datetime import datetime, date
 import requests
@@ -96,16 +96,48 @@ class EmpleadoViewSet(viewsets.ModelViewSet):
             return Empleado.objects.filter(empresa=user.empleado.empresa)
         return Empleado.objects.none()
 
-    def perform_create(self, serializer):
-        # Forzamos a que el nuevo empleado se cree dentro de la empresa del Encargado.
-        # Si lo crea el Superadmin, respeta la empresa que haya elegido en el JSON.
+    # 🔥 CONFIGURAMOS EL REGISTRO PLANO PARA EL ENCARGADO
+    def create(self, request, *args, **kwargs):
+        username = request.data.get('username')  
+        dni = request.data.get('dni')  # <--- ¡Atrapamos el DNI!
+        password = request.data.get('password')
+        first_name = request.data.get('first_name', '')
+        last_name = request.data.get('last_name', '')
+        rol = request.data.get('rol', 'VENTANILLA')
 
-        user = self.request.user
-        if hasattr(user, 'empleado'):
-            serializer.save(empresa=user.empleado.empresa)
-        else:
-            serializer.save()
+        # Exigimos también el DNI
+        if not username or not password or not dni:
+            return Response({"error": "DNI, username y password son obligatorios."}, status=status.HTTP_400_BAD_REQUEST)
 
+        UsuarioBase = get_user_model()
+
+        # Chequeamos si el DNI o el Username ya existen
+        if UsuarioBase.objects.filter(username=username).exists() or UsuarioBase.objects.filter(dni=dni).exists():
+            return Response({"error": "Este DNI o username ya está registrado como usuario en el sistema."}, status=status.HTTP_400_BAD_REQUEST)
+
+        # 1. Creamos el usuario base de Django pasándole el DNI
+        nuevo_usuario = UsuarioBase.objects.create_user(
+            username=username,
+            dni=dni,             # <--- ¡Lo guardamos en la base de datos!
+            password=password,
+            first_name=first_name,
+            last_name=last_name
+        )
+
+        # 2. Tomamos la empresa del Encargado logueado
+        empresa_encargado = request.user.empleado.empresa
+
+        # 3. Creamos el perfil de Empleado
+        nuevo_empleado = Empleado.objects.create(
+            usuario=nuevo_usuario,
+            empresa=empresa_encargado,
+            rol=rol
+        )
+
+        serializer = self.get_serializer(nuevo_empleado)
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+    
 
 
 class UbicacionViewSet(viewsets.ModelViewSet):
@@ -198,7 +230,7 @@ class ViajeViewSet(viewsets.ModelViewSet):
             'proximos_arribos': ViajeSerializer(proximos, many=True).data
         })
 
-    @action(detail=False, methods=['post', 'get'])
+    @action(detail=False, methods=['post', 'get'], permission_classes=[AllowAny])
     def buscar_pasajeros(self, request):
         # Obtenemos los datos (soporta tanto GET params como POST body para ser flexibles)
         destino = request.data.get('destino') or request.query_params.get('destino')
