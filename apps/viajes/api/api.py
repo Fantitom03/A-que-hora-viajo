@@ -6,6 +6,11 @@ from django.utils import timezone
 from datetime import datetime, date
 import requests
 
+from django_filters.rest_framework import DjangoFilterBackend
+from .filters import ViajeFilter, EmpresaFilter
+
+from apps.viajes.api.services.weather_service import obtener_pronostico, calcular_llegada
+
 from ..models import Terminal, Empresa, Empleado, Pasajero, Viaje, Parada, Ubicacion
 from .serializers import (TerminalSerializer, EmpresaSerializer, EmpleadoSerializer, 
                           PasajeroSerializer, ViajeSerializer, ParadaSerializer, UbicacionSerializer)
@@ -25,6 +30,9 @@ class EmpresaViewSet(viewsets.ModelViewSet):
     queryset = Empresa.objects.all()
     serializer_class = EmpresaSerializer
     permission_classes = [IsAdminUser]
+
+    filter_backends = [DjangoFilterBackend]
+    filterset_class = EmpresaFilter
 
 
 class ParadaViewSet(viewsets.ModelViewSet):
@@ -188,6 +196,9 @@ class ViajeViewSet(viewsets.ModelViewSet):
     serializer_class = ViajeSerializer
     permission_classes = [EsPersonalEmpresaOReadOnly]
 
+    filter_backends = [DjangoFilterBackend]
+    filterset_class = ViajeFilter
+
     def get_queryset(self):
         ''' 
         Filtrado de viajes según el rol del usuario: 
@@ -234,19 +245,30 @@ class ViajeViewSet(viewsets.ModelViewSet):
     def buscar_pasajeros(self, request):
         # Obtenemos los datos (soporta tanto GET params como POST body para ser flexibles)
         destino = request.data.get('destino') or request.query_params.get('destino')
-        fecha = request.data.get('fecha') or request.query_params.get('fecha')
+        dia = request.data.get('dia') or request.query_params.get('dia')
         
-        if not destino or not fecha:
-            return Response({"error": "Debe enviar destino y fecha (YYYY-MM-DD)"}, status=400)
+        if not destino or not dia:
+            return Response({"error": "Debe enviar destino y dia de semana"}, status=400)
 
         # Lógica para determinar el día de la semana a partir de la fecha ingresada
-        fecha_obj = datetime.strptime(fecha,"%Y-%m-%d").date()
-        dias = {0: 'LUNES', 1: 'MARTES', 2: 'MIERCOLES', 3: 'JUEVES', 4: 'VIERNES', 5: 'SABADO', 6: 'DOMINGO'}
-        dia_semana = dias[fecha_obj.weekday()]
+        dia = dia.upper()
+
+        dias_validos = [
+            'LUNES',
+            'MARTES',
+            'MIERCOLES',
+            'JUEVES',
+            'VIERNES',
+            'SABADO',
+            'DOMINGO'            
+        ]
+
+        if dia not in dias_validos:
+            return Response({"error": "Dia invalido"}, status=400)
 
         # Filtramos por día operativo y destino solicitado, usando el campo ArrayField para los días operativos y buscando coincidencias en las paradas del viaje.
         viajes = Viaje.objects.filter(
-            dias_operativos__contains=[dia_semana], # Usamos contains para ArrayField
+            dias_operativos__contains=[dia], # Usamos contains para ArrayField
             paradas__ubicacion__nombre_oficial__icontains=destino
         ).distinct()
 
@@ -256,10 +278,10 @@ class ViajeViewSet(viewsets.ModelViewSet):
         # considerando el horario de embarque, el tiempo desde la salida a esa parada y cualquier demora informada.
         for viaje in viajes:
             parada = viaje.paradas.filter(ubicacion__nombre_oficial__icontains=destino).first()
-            salida = datetime.combine(fecha_obj, viaje.horario_embarcacion)
             
-            # Cálculo matemático exacto de la llegada
-            llegada = salida + parada.tiempo_desde_salida + viaje.demora
+            llegada = calcular_llegada(viaje, parada, dia)
+
+            clima = obtener_pronostico(parada.ubicacion.latitud, parada.ubicacion.longitud, llegada)
 
             resultado.append({
                 "empresa": viaje.empresa.nombre,
@@ -267,6 +289,7 @@ class ViajeViewSet(viewsets.ModelViewSet):
                 "hora_salida": viaje.horario_embarcacion.strftime("%H:%M"),
                 "hora_arribo_estimada": llegada.time().strftime("%H:%M"),
                 "precio": parada.precio,
+                "clima_estimado" : clima,
                 "estado": viaje.estado,
                 "motivo_demora": viaje.motivo_demora if viaje.estado == 'DEMORADO' else None
             })
