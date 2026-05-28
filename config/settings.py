@@ -47,7 +47,9 @@ INSTALLED_APPS = [
     
     # Mis apps
     'apps.viajes',
-    'apps.usuarios'
+    'apps.usuarios',
+
+    'drf_spectacular'
 ]
 
 MIDDLEWARE = [
@@ -154,6 +156,7 @@ REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': (
         'rest_framework_simplejwt.authentication.JWTAuthentication',
     ),
+    'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema'
 }
 
 SIMPLE_JWT = {
@@ -164,3 +167,9 @@ SIMPLE_JWT = {
 }
 
 OPENWEATHER_API_KEY = os.getenv('OPENWEATHER_API_KEY')
+
+SPECTACULAR_SETTINGS = {
+    'TITLE': 'API Terminal',
+    'DESCRIPTION': 'Documentación de la API de terminal de ómnibus',
+    'VERSION': '1.0.0',
+}
