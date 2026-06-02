@@ -45,8 +45,7 @@ class EmpleadoSerializer(serializers.ModelSerializer):
         model = Empleado
         fields = ['usuario', 'empresa', 'rol']
 
-    # En la representación del empleado, se muestra el username del usuario asociado y el nombre de la empresa en lugar de sus IDs. 
-    # Si agregaste el campo 'dni' al modelo custom User, también puedes incluirlo aquí.
+    # Representación del empleado, muestra el username y el nombre de la empresa.
     def to_representation(self, instance):
         representation = super().to_representation(instance)
         representation['usuario'] = {
@@ -252,7 +251,7 @@ class ViajeSerializer(serializers.ModelSerializer):
     # Validacion de días operativos
     def validate_dias_operativos(self, data):
         dias_validos = ['LUNES', 'MARTES', 'MIERCOLES', 'JUEVES', 'VIERNES', 'SABADO', 'DOMINGO']
-        # 'data' ya es una lista gracias a ArrayField, no hace falta el split(',')
+        # Valida que cada elemento en data sea un día de la semana válido.
         for dia in data:
             if dia.upper() not in dias_validos:
                 raise serializers.ValidationError(f"{dia} no es un día válido")

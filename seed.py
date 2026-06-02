@@ -62,7 +62,7 @@ def seed_data():
                 {"ubicacion": 10, "tiempo": 210, "precio": 2500},
             ]
         },
-        # Viaje de TESA (el del ejemplo del JSON del usuario)
+        # Viaje de TESA
         {
             "empresa": empresa_tesa,
             "horario": time(15, 0),

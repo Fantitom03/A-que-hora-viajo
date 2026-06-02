@@ -57,7 +57,7 @@ class PasajeroViewSet(viewsets.ModelViewSet):
     def create(self, request, *args, **kwargs):
         # 1. Atrapamos el DNI también
         username = request.data.get('username')
-        dni = request.data.get('dni')  # <--- ¡NUEVO! Atrapamos el DNI
+        dni = request.data.get('dni')
         password = request.data.get('password')
         first_name = request.data.get('first_name', '')
         last_name = request.data.get('last_name', '')
@@ -76,7 +76,7 @@ class PasajeroViewSet(viewsets.ModelViewSet):
         # 2. Pasamos el DNI a la creación del usuario base
         nuevo_usuario = UsuarioBase.objects.create_user(
             username=username,
-            dni=dni,       # <--- ¡NUEVO! Lo guardamos en la BD
+            dni=dni,
             password=password,
             first_name=first_name,
             last_name=last_name
@@ -104,10 +104,10 @@ class EmpleadoViewSet(viewsets.ModelViewSet):
             return Empleado.objects.filter(empresa=user.empleado.empresa)
         return Empleado.objects.none()
 
-    # 🔥 CONFIGURAMOS EL REGISTRO PLANO PARA EL ENCARGADO
+    # Registro plano para el encargado
     def create(self, request, *args, **kwargs):
         username = request.data.get('username')  
-        dni = request.data.get('dni')  # <--- ¡Atrapamos el DNI!
+        dni = request.data.get('dni')
         password = request.data.get('password')
         first_name = request.data.get('first_name', '')
         last_name = request.data.get('last_name', '')
@@ -126,7 +126,7 @@ class EmpleadoViewSet(viewsets.ModelViewSet):
         # 1. Creamos el usuario base de Django pasándole el DNI
         nuevo_usuario = UsuarioBase.objects.create_user(
             username=username,
-            dni=dni,             # <--- ¡Lo guardamos en la base de datos!
+            dni=dni,
             password=password,
             first_name=first_name,
             last_name=last_name
@@ -151,8 +151,8 @@ class EmpleadoViewSet(viewsets.ModelViewSet):
 class UbicacionViewSet(viewsets.ModelViewSet):
     queryset = Ubicacion.objects.all()
     serializer_class = UbicacionSerializer
-    # Los empleados pueden crear ubicaciones o los superusuarios, pero los pasajeros solo pueden leerlas. 
-    # Esto es para asegurar que solo el personal autorizado pueda agregar o modificar ubicaciones, mientras que los pasajeros pueden consultar la información sin riesgo de alterarla.
+    # Empleados o superusuarios pueden crear ubicaciones.
+    # Pasajeros solo pueden leerlas para no alterar la información.
     permission_classes = [EsEmpleadoOSuperuserOReadOnly]
 
 
