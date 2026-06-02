@@ -11,13 +11,13 @@ UsuarioBase = get_user_model()
 class TerminalSerializer(serializers.ModelSerializer):
     class Meta:
         model = Terminal
-        fields = ['nombre', 'cantidad_plataformas']
+        fields = ['id', 'nombre', 'cantidad_plataformas']
 
 
 class EmpresaSerializer(serializers.ModelSerializer):
     class Meta: 
         model = Empresa
-        fields = ['nombre', 'ventanilla', 'terminal']
+        fields = ['id', 'nombre', 'ventanilla', 'terminal']
 
     # Si la empresa tiene una terminal asignada, en la representación se muestra el nombre de la terminal en lugar del ID
     def to_representation(self, instance):
@@ -43,7 +43,7 @@ class EmpresaSerializer(serializers.ModelSerializer):
 class EmpleadoSerializer(serializers.ModelSerializer):
     class Meta:
         model = Empleado
-        fields = ['usuario', 'empresa', 'rol']
+        fields = ['id', 'usuario', 'empresa', 'rol']
 
     # Representación del empleado, muestra el username y el nombre de la empresa.
     def to_representation(self, instance):
@@ -180,6 +180,8 @@ class ParadaSerializer(serializers.ModelSerializer):
 class ViajeSerializer(serializers.ModelSerializer):
     paradas = ParadaSerializer(many=True, read_only=True)
     empresa_nombre = serializers.CharField(source='empresa.nombre', read_only=True)
+    terminal_nombre = serializers.CharField(source='empresa.terminal.nombre', read_only=True, allow_null=True)
+    terminal_id = serializers.UUIDField(source='empresa.terminal.id', read_only=True, allow_null=True)
     horario_llegada_final = serializers.SerializerMethodField()
     estado = serializers.SerializerMethodField()
     demora = serializers.SerializerMethodField()
@@ -202,21 +204,29 @@ class ViajeSerializer(serializers.ModelSerializer):
         if not hasattr(obj, f'_registro_{fecha_consulta}'):
             registro = obj.estados_diarios.filter(fecha=fecha_consulta).first()
             
-            # Lógica Lazy FINALIZADO
-            if not registro or registro.estado != 'FINALIZADO':
+            # Lógica Lazy FINALIZADO y EN_VIAJE
+            if not registro or registro.estado not in ['FINALIZADO', 'CANCELADO']:
                 base_datetime = datetime.combine(fecha_consulta, obj.horario_embarcacion)
                 demora = registro.tiempo_demora if registro else timedelta(minutes=0)
                 llegada = base_datetime + obj.duracion + demora
-                if datetime.now() > llegada + timedelta(hours=1):
+                ahora = datetime.now()
+
+                nuevo_estado = None
+                if ahora > llegada + timedelta(hours=1):
+                    nuevo_estado = 'FINALIZADO'
+                elif ahora >= base_datetime + demora and (not registro or registro.estado == 'A_TIEMPO'):
+                    nuevo_estado = 'EN_VIAJE'
+
+                if nuevo_estado:
                     if not registro:
                         registro = EstadoViajeDiario.objects.create(
                             viaje=obj,
                             fecha=fecha_consulta,
-                            estado='FINALIZADO',
-                            tiempo_demora=timedelta(minutes=0)
+                            estado=nuevo_estado,
+                            tiempo_demora=demora
                         )
                     else:
-                        registro.estado = 'FINALIZADO'
+                        registro.estado = nuevo_estado
                         registro.save()
             
             setattr(obj, f'_registro_{fecha_consulta}', registro)

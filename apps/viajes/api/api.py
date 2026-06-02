@@ -197,9 +197,6 @@ class EmpleadoViewSet(viewsets.ModelViewSet):
             last_name=last_name
         )
 
-        # 2. Tomamos la empresa del Encargado logueado
-        empresa_encargado = request.user.empleado.empresa
-
         # 3. Creamos el perfil de Empleado
         nuevo_empleado = Empleado.objects.create(
             usuario=nuevo_usuario,
@@ -371,19 +368,36 @@ class ViajeViewSet(viewsets.ModelViewSet):
     summary="Pantalla de terminal",
     description="""
     Muestra los últimos viajes que partieron
-    y los próximos viajes programados.
-    """
+    y los próximos viajes programados para hoy.
+    """,
+    parameters=[
+        OpenApiParameter(
+            name="terminal_id",
+            type=str,
+            required=False,
+            description="UUID de la terminal"
+        )
+    ]
     )
     @action(detail=False, methods=['get'])
     def pantalla_terminal(self, request):
-        # Lógica para las pantallas de la terminal: Mostrar los últimos 2 viajes que partieron (ordenados por hora de embarque descendente) y 
-        # los próximos viajes que están por partir (ordenados por hora de embarque ascendente).
+        qs = self.get_queryset()
+
+        terminal_id = request.query_params.get('terminal_id')
+        if terminal_id:
+            qs = qs.filter(empresa__terminal__id=terminal_id)
+            
+        # Solo mostrar los viajes que operan el día de HOY
+        dias_validos = ['LUNES', 'MARTES', 'MIERCOLES', 'JUEVES', 'VIERNES', 'SABADO', 'DOMINGO']
+        hoy_dia = dias_validos[datetime.now().weekday()]
+        qs = qs.filter(dias_operativos__contains=[hoy_dia])
+
         ahora = datetime.now().time()
-        ya_partieron = self.get_queryset().filter(horario_embarcacion__lt=ahora).order_by('-horario_embarcacion')[:2]
-        proximos = self.get_queryset().filter(horario_embarcacion__gte=ahora).order_by('horario_embarcacion')
+        ya_partieron = qs.filter(horario_embarcacion__lt=ahora).order_by('-horario_embarcacion')[:2]
+        proximos = qs.filter(horario_embarcacion__gte=ahora).order_by('horario_embarcacion')
         return Response({
-            'recientemente_partidos': ViajeSerializer(ya_partieron, many=True).data,
-            'proximos_arribos': ViajeSerializer(proximos, many=True).data
+            'recientemente_partidos': ViajeSerializer(ya_partieron, many=True, context={'request': request}).data,
+            'proximos_arribos': ViajeSerializer(proximos, many=True, context={'request': request}).data
         })
 
     @extend_schema(
@@ -408,9 +422,9 @@ class ViajeViewSet(viewsets.ModelViewSet):
         ),
         OpenApiParameter(
             name="terminal_id",
-            type=int,
+            type=str,
             required=False,
-            description="ID de la terminal"
+            description="UUID de la terminal"
         ),
     ],
     responses={
@@ -471,6 +485,34 @@ class ViajeViewSet(viewsets.ModelViewSet):
             fecha_viaje = obtener_fecha_proxima(dia)
             registro = viaje.estados_diarios.filter(fecha=fecha_viaje).first()
             
+            demora = registro.tiempo_demora if registro else timezone.timedelta(minutes=0)
+
+            # --- Lógica Lazy FINALIZADO / EN_VIAJE ---
+            if not registro or registro.estado not in ['FINALIZADO', 'CANCELADO']:
+                from datetime import datetime, timedelta
+                base_datetime = datetime.combine(fecha_viaje, viaje.horario_embarcacion)
+                llegada_final_viaje = base_datetime + viaje.duracion + demora
+                ahora = datetime.now()
+                
+                nuevo_estado = None
+                if ahora > llegada_final_viaje + timedelta(hours=1):
+                    nuevo_estado = 'FINALIZADO'
+                elif ahora >= base_datetime + demora and (not registro or registro.estado == 'A_TIEMPO'):
+                    nuevo_estado = 'EN_VIAJE'
+
+                if nuevo_estado:
+                    if not registro:
+                        registro = EstadoViajeDiario.objects.create(
+                            viaje=viaje,
+                            fecha=fecha_viaje,
+                            estado=nuevo_estado,
+                            tiempo_demora=demora
+                        )
+                    else:
+                        registro.estado = nuevo_estado
+                        registro.save()
+            # ----------------------------------------
+            
             estado = registro.estado if registro else 'A_TIEMPO'
             motivo_demora = registro.motivo_demora if registro else None
             demora = registro.tiempo_demora if registro else timezone.timedelta(minutes=0)
@@ -481,13 +523,16 @@ class ViajeViewSet(viewsets.ModelViewSet):
 
             resultado.append({
                 "empresa": viaje.empresa.nombre,
+                "terminal_nombre": viaje.empresa.terminal.nombre if viaje.empresa.terminal else None,
+                "terminal_id": str(viaje.empresa.terminal.id) if viaje.empresa.terminal else None,
                 "destino_solicitado": parada.ubicacion.nombre_oficial,
                 "hora_salida": viaje.horario_embarcacion.strftime("%H:%M"),
                 "hora_arribo_estimada": llegada.time().strftime("%H:%M"),
                 "precio": parada.precio,
                 "clima_estimado" : clima,
                 "estado": estado,
-                "motivo_demora": motivo_demora
+                "motivo_demora": motivo_demora,
+                "demora_minutos": int(demora.total_seconds() / 60)
             })
 
         return Response(resultado)

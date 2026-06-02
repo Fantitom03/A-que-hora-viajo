@@ -126,6 +126,7 @@ class EstadoViajeDiario(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     ESTADOS = [
         ('A_TIEMPO', 'A tiempo'),
+        ('EN_VIAJE', 'En viaje'),
         ('ABORDANDO', 'Abordando'),
         ('DEMORADO', 'Demorado'),
         ('FINALIZADO', 'Finalizado'),

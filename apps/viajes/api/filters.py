@@ -28,8 +28,11 @@ class ViajeFilter(filters.FilterSet):
         return queryset.filter(plataformas_asignadas__contains=[value])
     
     def filtrar_por_estado(self, queryset, name, value):
-        from datetime import date, datetime
+        from datetime import date, datetime, timedelta
         from django.db.models import Q
+        from ..models import EstadoViajeDiario
+        
+        estado_buscado = value.upper()
 
         fecha_str = self.request.query_params.get('fecha')
         if fecha_str:
@@ -40,15 +43,50 @@ class ViajeFilter(filters.FilterSet):
         else:
             fecha_consulta = date.today()
 
-        if value.upper() in ['A_TIEMPO', 'PROGRAMADO']:
+        # Para que el filtro funcione con estados calculados perezosamente (EN_VIAJE, FINALIZADO),
+        # primero forzamos la actualización de los viajes que podrían estar desactualizados.
+        ahora = datetime.now()
+        
+        # Obtenemos viajes que no tienen registro hoy, o que están 'A_TIEMPO'
+        viajes_potenciales = queryset.filter(
+            Q(estados_diarios__fecha=fecha_consulta, estados_diarios__estado='A_TIEMPO') |
+            ~Q(estados_diarios__fecha=fecha_consulta)
+        )
+        
+        for viaje in viajes_potenciales:
+            registro = viaje.estados_diarios.filter(fecha=fecha_consulta).first()
+            base_datetime = datetime.combine(fecha_consulta, viaje.horario_embarcacion)
+            demora = registro.tiempo_demora if registro else timedelta(minutes=0)
+            llegada = base_datetime + viaje.duracion + demora
+            
+            nuevo_estado = None
+            if ahora > llegada + timedelta(hours=1):
+                nuevo_estado = 'FINALIZADO'
+            elif ahora >= base_datetime + demora:
+                nuevo_estado = 'EN_VIAJE'
+                
+            if nuevo_estado:
+                if not registro:
+                    EstadoViajeDiario.objects.create(
+                        viaje=viaje,
+                        fecha=fecha_consulta,
+                        estado=nuevo_estado,
+                        tiempo_demora=demora
+                    )
+                else:
+                    registro.estado = nuevo_estado
+                    registro.save()
+
+        # Ahora que la BD está al día, filtramos correctamente
+        if estado_buscado == 'A_TIEMPO':
             return queryset.filter(
-                Q(estados_diarios__fecha=fecha_consulta, estados_diarios__estado__in=['A_TIEMPO', 'PROGRAMADO']) |
+                Q(estados_diarios__fecha=fecha_consulta, estados_diarios__estado='A_TIEMPO') |
                 ~Q(estados_diarios__fecha=fecha_consulta)
             ).distinct()
         else:
             return queryset.filter(
                 estados_diarios__fecha=fecha_consulta, 
-                estados_diarios__estado=value.upper()
+                estados_diarios__estado=estado_buscado
             ).distinct()
     
 
