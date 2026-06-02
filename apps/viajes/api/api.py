@@ -165,6 +165,8 @@ class UbicacionViewSet(viewsets.ModelViewSet):
 
         try:
             response = requests.get(url, params=params, headers=headers, timeout=3)
+            response.raise_for_status() # Aseguramos que la respuesta HTTP sea exitosa
+            
             resultados = response.json()
             if resultados:
                 lugar = resultados[0]
@@ -184,9 +186,13 @@ class UbicacionViewSet(viewsets.ModelViewSet):
                 self.perform_create(serializer)
                 return Response(serializer.data, status=status.HTTP_201_CREATED)
             else:
-                return Response({'error': 'La ubicación no pudo ser encontrada.'}, status=400)
+                return Response({'error': 'La ubicación no pudo ser encontrada.'}, status=status.HTTP_404_NOT_FOUND)
+        except requests.exceptions.HTTPError:
+            return Response({'error': 'Error comunicándose con el servidor de mapas.'}, status=status.HTTP_502_BAD_GATEWAY)
         except requests.exceptions.RequestException:
-            return Response({'error': 'Fallo la conexión con el servidor de mapas.'}, status=503)
+            return Response({'error': 'Fallo la conexión con el servidor de mapas.'}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+        except ValueError:
+            return Response({'error': 'Respuesta inválida del servidor de mapas.'}, status=status.HTTP_502_BAD_GATEWAY)
 
 
 
@@ -290,6 +296,12 @@ class ViajeViewSet(viewsets.ModelViewSet):
             filtros['empresa__terminal__id'] = terminal_id
 
         viajes = Viaje.objects.filter(**filtros).distinct()
+
+        if not viajes.exists():
+            return Response(
+                {"error": "No se encontraron viajes para el destino y día seleccionados."}, 
+                status=status.HTTP_404_NOT_FOUND
+            )
 
         resultado = []
 

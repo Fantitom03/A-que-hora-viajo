@@ -2,15 +2,27 @@ from rest_framework import permissions
 
 class EsEmpleadoOSuperuserOReadOnly(permissions.BasePermission):
     """
-    Las ubicaciones pueden ser leídas por cualquiera (pasajeros incluidos).
-    Pero solo pueden ser creadas o modificadas por Empleados (Ventanilla/Encargado) o Superusuarios.
+    PERMISOS BASADOS EN ATRIBUTOS DEL USUARIO (PROGRAMÁTICOS)
+    ----------------------------------------------------------
+    A diferencia de DjangoModelPermissions, que requiere configurar Grupos y Permisos
+    manualmente en el Panel de Administración de Django, esta clase evalúa los permisos
+    dinámicamente verificando las propiedades del usuario autenticado.
+    
+    ¿Por qué usamos esta aproximación?
+    Es más escalable en un modelo multi-empresa (multi-tenant). Al depender de 
+    `hasattr(request.user, 'empleado')`, automatizamos el permiso sin tener que 
+    acordarnos de asignar grupos a mano cada vez que se registra un empleado.
+    
+    Reglas:
+    - Lectura (GET, HEAD, OPTIONS): Permitida para todos (incluyendo pasajeros e invitados).
+    - Escritura (POST, PUT, DELETE): Solo Superusuarios o usuarios que tengan un perfil de Empleado.
     """
     def has_permission(self, request, view):
         if request.method in permissions.SAFE_METHODS:
             return True
         if not request.user or not request.user.is_authenticated:
             return False
-        # Si es superusuario o si tiene el perfil de empleado, pasa.
+        # Si es superusuario o si tiene el perfil de empleado asociado, pasa.
         return request.user.is_superuser or hasattr(request.user, 'empleado')
 
 class EsEncargadoOSuperuser(permissions.BasePermission):
@@ -35,25 +47,41 @@ class EsEncargadoOSuperuser(permissions.BasePermission):
         return False
 
 class EsPersonalEmpresaOReadOnly(permissions.BasePermission):
-    '''
-    Los pasajeros solo leen. 
-    Los empleados solo ven/modifican datos de SU propia empresa.
-    '''
+    """
+    MANEJO DE PERMISOS DE VIAJES Y PARADAS (PROGRAMÁTICO)
+    -----------------------------------------------------
+    En lugar de utilizar `DjangoModelPermissions` (que requeriría crear grupos 
+    "Administradores de Terminal" en el Panel de Admin y asignar permisos modelo 
+    por modelo), implementamos validación por lógica de negocio.
+    
+    ¿Por qué esta aproximación?
+    1. Automatización: Un empleado hereda permisos instantáneamente por el solo
+       hecho de estar asociado a una `empresa` (sin depender del Panel Admin).
+    2. Aislamiento Multi-Tenant: `DjangoModelPermissions` verifica si un usuario
+       puede "Crear un Viaje" en general, pero NO valida de qué empresa es el viaje.
+       Nuestra lógica de `has_object_permission` garantiza que un empleado solo 
+       puede editar los viajes o paradas que pertenecen a SU propia empresa, 
+       algo que los grupos genéricos de Django no pueden restringir fácilmente.
+    
+    Reglas:
+    - Pasajeros: Solo lectura.
+    - Empleados: Solo ven/modifican datos de SU propia empresa.
+    """
     def has_permission(self, request, view):
         if request.method in permissions.SAFE_METHODS:
             return True
         
-        # Solo los usuarios autenticados con perfil de Empleado pueden hacer modificaciones
+        # Solo los usuarios autenticados con perfil de Empleado pueden hacer modificaciones a nivel de colección (POST)
         return request.user.is_authenticated and hasattr(request.user, 'empleado')
 
-    # Para acciones específicas sobre objetos (como editar un viaje o una parada), se verifica que el objeto pertenezca a la empresa del empleado.
+    # Para acciones específicas sobre objetos (PUT, PATCH, DELETE sobre un viaje o parada)
     def has_object_permission(self, request, view, obj):
         if request.method in permissions.SAFE_METHODS:
             return True
         # El superusuario de la terminal tiene control total siempre
         if request.user.is_superuser:
             return True
-        # Se verifica si el viaje o la parada pertenecen a la empresa del empleado
+        # Se verifica que el viaje o la parada pertenezcan estrictamente a la empresa del empleado
         if hasattr(obj, 'empresa'):
             return obj.empresa == request.user.empleado.empresa
         if hasattr(obj, 'viaje'):

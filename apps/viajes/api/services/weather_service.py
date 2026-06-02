@@ -64,9 +64,9 @@ def obtener_pronostico(lat,lon, llegada_estimada):
         )
 
         return {
-            "temperatura" : f"{forecast_cercano['main']['temp']} °C",
-            "descripcion" : forecast_cercano['weather'][0]['description']
+            "temp": forecast_cercano['main']['temp'],
+            "descripcion": forecast_cercano['weather'][0]['description']
         } 
     
     except requests.exceptions.RequestException:
-        return {"error" : "Servidor climñatico no disponible"}
+        return {"error": "Servidor climático no disponible"}
