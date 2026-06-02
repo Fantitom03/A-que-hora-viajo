@@ -9,11 +9,11 @@ import requests
 from django_filters.rest_framework import DjangoFilterBackend
 from .filters import ViajeFilter, EmpresaFilter
 
-from apps.viajes.api.services.weather_service import obtener_pronostico, calcular_llegada
+from apps.viajes.api.services.weather_service import obtener_pronostico, calcular_llegada, obtener_fecha_proxima
 
-from ..models import Terminal, Empresa, Empleado, Pasajero, Viaje, Parada, Ubicacion
+from ..models import Terminal, Empresa, Empleado, Pasajero, Viaje, Parada, Ubicacion, EstadoViajeDiario
 from .serializers import (TerminalSerializer, EmpresaSerializer, EmpleadoSerializer, 
-                          PasajeroSerializer, ViajeSerializer, ParadaSerializer, UbicacionSerializer)
+                          PasajeroSerializer, ViajeSerializer, ParadaSerializer, UbicacionSerializer, EstadoViajeDiarioSerializer)
 from .permissions import EsPersonalEmpresaOReadOnly, EsEncargadoOSuperuser, EsEmpleadoOSuperuserOReadOnly, EsPasajeroOInvitado
 
 from django.contrib.auth import get_user_model
@@ -215,19 +215,32 @@ class ViajeViewSet(viewsets.ModelViewSet):
         serializer.save(empresa=self.request.user.empleado.empresa)
 
     @action(detail=True, methods=['post'], permission_classes=[IsAuthenticated])
-    def registrar_demora(self, request, pk=None):
-        # Permite a ventanilla registrar una demora en minutos para un viaje específico, junto con un motivo opcional.
+    def actualizar_estado_diario(self, request, pk=None):
         viaje = self.get_object()
         minutos = request.data.get('demora_minutos')
         motivo = request.data.get('motivo')
+        estado = request.data.get('estado')
         
-        if minutos is None: return Response({'error': 'Debe ingresar minutos'}, status=400)
+        fecha_str = request.data.get('fecha')
+        if fecha_str:
+            fecha_registro = datetime.strptime(fecha_str, "%Y-%m-%d").date()
+        else:
+            fecha_registro = date.today()
 
-        viaje.demora = timezone.timedelta(minutes=int(minutos))
-        viaje.motivo_demora = motivo
-        viaje.estado = 'DEMORADO' if int(minutos) > 0 else 'A_TIEMPO'
-        viaje.save()
-        return Response({'status': 'Demora actualizada correctamente'})
+        registro, created = EstadoViajeDiario.objects.get_or_create(viaje=viaje, fecha=fecha_registro)
+        
+        if minutos is not None:
+            registro.tiempo_demora = timezone.timedelta(minutes=int(minutos))
+        if motivo is not None:
+            registro.motivo_demora = motivo
+        if estado is not None:
+            registro.estado = estado
+        elif minutos is not None and int(minutos) > 0:
+            registro.estado = 'DEMORADO'
+        
+        registro.save()
+
+        return Response({'status': 'Estado diario actualizado correctamente', 'estado': registro.estado})
 
     @action(detail=False, methods=['get'])
     def pantalla_terminal(self, request):
@@ -242,10 +255,11 @@ class ViajeViewSet(viewsets.ModelViewSet):
         })
 
     @action(detail=False, methods=['post', 'get'], permission_classes=[AllowAny])
-    def buscar_pasajeros(self, request):
+    def buscar_viajes(self, request):
         # Obtenemos los datos (soporta tanto GET params como POST body para ser flexibles)
         destino = request.data.get('destino') or request.query_params.get('destino')
         dia = request.data.get('dia') or request.query_params.get('dia')
+        terminal_id = request.data.get('terminal_id') or request.query_params.get('terminal_id')
         
         if not destino or not dia:
             return Response({"error": "Debe enviar destino y dia de semana"}, status=400)
@@ -267,10 +281,15 @@ class ViajeViewSet(viewsets.ModelViewSet):
             return Response({"error": "Dia invalido"}, status=400)
 
         # Filtramos por día operativo y destino solicitado, usando el campo ArrayField para los días operativos y buscando coincidencias en las paradas del viaje.
-        viajes = Viaje.objects.filter(
-            dias_operativos__contains=[dia], # Usamos contains para ArrayField
-            paradas__ubicacion__nombre_oficial__icontains=destino
-        ).distinct()
+        filtros = {
+            'dias_operativos__contains': [dia],
+            'paradas__ubicacion__nombre_oficial__icontains': destino
+        }
+        
+        if terminal_id:
+            filtros['empresa__terminal__id'] = terminal_id
+
+        viajes = Viaje.objects.filter(**filtros).distinct()
 
         resultado = []
 
@@ -279,7 +298,14 @@ class ViajeViewSet(viewsets.ModelViewSet):
         for viaje in viajes:
             parada = viaje.paradas.filter(ubicacion__nombre_oficial__icontains=destino).first()
             
-            llegada = calcular_llegada(viaje, parada, dia)
+            fecha_viaje = obtener_fecha_proxima(dia)
+            registro = viaje.estados_diarios.filter(fecha=fecha_viaje).first()
+            
+            estado = registro.estado if registro else 'A_TIEMPO'
+            motivo_demora = registro.motivo_demora if registro else None
+            demora = registro.tiempo_demora if registro else timezone.timedelta(minutes=0)
+
+            llegada = calcular_llegada(viaje, parada, dia, demora)
 
             clima = obtener_pronostico(parada.ubicacion.latitud, parada.ubicacion.longitud, llegada)
 
@@ -290,8 +316,15 @@ class ViajeViewSet(viewsets.ModelViewSet):
                 "hora_arribo_estimada": llegada.time().strftime("%H:%M"),
                 "precio": parada.precio,
                 "clima_estimado" : clima,
-                "estado": viaje.estado,
-                "motivo_demora": viaje.motivo_demora if viaje.estado == 'DEMORADO' else None
+                "estado": estado,
+                "motivo_demora": motivo_demora
             })
 
         return Response(resultado)
+
+class EstadoViajeDiarioViewSet(viewsets.ModelViewSet):
+    queryset = EstadoViajeDiario.objects.all()
+    serializer_class = EstadoViajeDiarioSerializer
+    permission_classes = [IsAuthenticated]
+    filter_backends = [DjangoFilterBackend]
+    filterset_fields = ['viaje', 'fecha', 'estado']

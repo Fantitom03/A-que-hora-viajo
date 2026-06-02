@@ -1,8 +1,8 @@
 import requests
 from rest_framework import serializers
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 from django.conf import settings
-from ..models import Terminal, Empresa, Empleado, Pasajero, Viaje, Parada, Ubicacion
+from ..models import Terminal, Empresa, Empleado, Pasajero, Viaje, Parada, Ubicacion, EstadoViajeDiario
 from django.contrib.auth import get_user_model
 UsuarioBase = get_user_model()
 
@@ -148,7 +148,9 @@ class ParadaSerializer(serializers.ModelSerializer):
     def get_horario_estimado_parada(self, obj):
         viaje = obj.viaje
         base_datetime = datetime.combine(date.today(), viaje.horario_embarcacion)
-        resultado = base_datetime + obj.tiempo_desde_salida + viaje.demora
+        registro = viaje.estados_diarios.filter(fecha=date.today()).first()
+        demora = registro.tiempo_demora if registro else timedelta(minutes=0)
+        resultado = base_datetime + obj.tiempo_desde_salida + demora
         return resultado.time().strftime("%H:%M")
 
     # Validacion de orden de parada (debe ser mayor a 0)
@@ -180,15 +182,71 @@ class ViajeSerializer(serializers.ModelSerializer):
     paradas = ParadaSerializer(many=True, read_only=True)
     empresa_nombre = serializers.CharField(source='empresa.nombre', read_only=True)
     horario_llegada_final = serializers.SerializerMethodField()
+    estado = serializers.SerializerMethodField()
+    demora = serializers.SerializerMethodField()
+    motivo_demora = serializers.SerializerMethodField()
 
     class Meta:
         model = Viaje
         fields = '__all__'
-        read_only_fields = ['empresa', 'estado', 'demora', 'motivo_demora']
+        read_only_fields = ['empresa']
+
+    def get_registro_hoy(self, obj):
+        request = self.context.get('request')
+        fecha_consulta = date.today()
+        if request and request.query_params.get('fecha'):
+            try:
+                fecha_consulta = datetime.strptime(request.query_params.get('fecha'), "%Y-%m-%d").date()
+            except ValueError:
+                pass
+        
+        if not hasattr(obj, f'_registro_{fecha_consulta}'):
+            registro = obj.estados_diarios.filter(fecha=fecha_consulta).first()
+            
+            # Lógica Lazy FINALIZADO
+            if not registro or registro.estado != 'FINALIZADO':
+                base_datetime = datetime.combine(fecha_consulta, obj.horario_embarcacion)
+                demora = registro.tiempo_demora if registro else timedelta(minutes=0)
+                llegada = base_datetime + obj.duracion + demora
+                if datetime.now() > llegada + timedelta(hours=1):
+                    if not registro:
+                        registro = EstadoViajeDiario.objects.create(
+                            viaje=obj,
+                            fecha=fecha_consulta,
+                            estado='FINALIZADO',
+                            tiempo_demora=timedelta(minutes=0)
+                        )
+                    else:
+                        registro.estado = 'FINALIZADO'
+                        registro.save()
+            
+            setattr(obj, f'_registro_{fecha_consulta}', registro)
+        return getattr(obj, f'_registro_{fecha_consulta}')
+
+    def get_estado(self, obj):
+        registro = self.get_registro_hoy(obj)
+        return registro.estado if registro else 'A_TIEMPO'
+
+    def get_demora(self, obj):
+        registro = self.get_registro_hoy(obj)
+        return registro.tiempo_demora if registro else timedelta(minutes=0)
+
+    def get_motivo_demora(self, obj):
+        registro = self.get_registro_hoy(obj)
+        return registro.motivo_demora if registro else None
 
     def get_horario_llegada_final(self, obj):
-        base_datetime = datetime.combine(date.today(), obj.horario_embarcacion)
-        resultado = base_datetime + obj.duracion + obj.demora
+        request = self.context.get('request')
+        fecha_consulta = date.today()
+        if request and request.query_params.get('fecha'):
+            try:
+                fecha_consulta = datetime.strptime(request.query_params.get('fecha'), "%Y-%m-%d").date()
+            except ValueError:
+                pass
+
+        base_datetime = datetime.combine(fecha_consulta, obj.horario_embarcacion)
+        demora = self.get_demora(obj)
+        resultado = base_datetime + obj.duracion + demora
         return resultado.time().strftime("%H:%M")
 
     # Validacion de días operativos
@@ -222,3 +280,8 @@ class ViajeSerializer(serializers.ModelSerializer):
         if existe:
             raise serializers.ValidationError("Ya existe un viaje usando esa plataforma, en el mismo horario y días")
         return data
+
+class EstadoViajeDiarioSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = EstadoViajeDiario
+        fields = '__all__'

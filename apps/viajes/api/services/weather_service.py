@@ -22,12 +22,12 @@ def obtener_fecha_proxima(dia_buscado):
     return hoy + timedelta(days=dias_restantes)
 
 
-def calcular_llegada(viaje, parada, dia):
+def calcular_llegada(viaje, parada, dia, demora):
     fecha_viaje = obtener_fecha_proxima(dia)
 
     salida = datetime.combine(fecha_viaje, viaje.horario_embarcacion)
 
-    llegada = salida + parada.tiempo_desde_salida + viaje.demora
+    llegada = salida + parada.tiempo_desde_salida + demora
 
     return llegada
 
@@ -64,7 +64,7 @@ def obtener_pronostico(lat,lon, llegada_estimada):
         )
 
         return {
-            "temperatura" : forecast_cercano['main']['temp'],
+            "temperatura" : f"{forecast_cercano['main']['temp']} °C",
             "descripcion" : forecast_cercano['weather'][0]['description']
         } 
     

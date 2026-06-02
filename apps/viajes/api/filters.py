@@ -5,7 +5,7 @@ class ViajeFilter(filters.FilterSet):
     
     empresa = filters.CharFilter(field_name='empresa__nombre', lookup_expr='icontains')
 
-    estado = filters.CharFilter(lookup_expr='iexact')
+    estado = filters.CharFilter(method='filtrar_por_estado')
 
     horario_desde = filters.TimeFilter(field_name='horario_embarcacion', lookup_expr='gte')
 
@@ -26,6 +26,30 @@ class ViajeFilter(filters.FilterSet):
     
     def filtrar_por_plataforma(self, queryset, name, value):
         return queryset.filter(plataformas_asignadas__contains=[value])
+    
+    def filtrar_por_estado(self, queryset, name, value):
+        from datetime import date, datetime
+        from django.db.models import Q
+
+        fecha_str = self.request.query_params.get('fecha')
+        if fecha_str:
+            try:
+                fecha_consulta = datetime.strptime(fecha_str, "%Y-%m-%d").date()
+            except ValueError:
+                fecha_consulta = date.today()
+        else:
+            fecha_consulta = date.today()
+
+        if value.upper() in ['A_TIEMPO', 'PROGRAMADO']:
+            return queryset.filter(
+                Q(estados_diarios__fecha=fecha_consulta, estados_diarios__estado__in=['A_TIEMPO', 'PROGRAMADO']) |
+                ~Q(estados_diarios__fecha=fecha_consulta)
+            ).distinct()
+        else:
+            return queryset.filter(
+                estados_diarios__fecha=fecha_consulta, 
+                estados_diarios__estado=value.upper()
+            ).distinct()
     
 
 class EmpresaFilter(filters.FilterSet):

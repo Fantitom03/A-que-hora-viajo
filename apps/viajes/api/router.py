@@ -1,7 +1,7 @@
 from rest_framework import routers
 from rest_framework import routers
 from .api import (TerminalViewSet, EmpresaViewSet, EmpleadoViewSet, 
-                    PasajeroViewSet, ViajeViewSet, ParadaViewSet, UbicacionViewSet)
+                    PasajeroViewSet, ViajeViewSet, ParadaViewSet, UbicacionViewSet, EstadoViajeDiarioViewSet)
 
 router = routers.DefaultRouter()
 
@@ -12,5 +12,6 @@ router.register(prefix='pasajero', viewset=PasajeroViewSet, basename='pasajero')
 router.register(prefix='viaje', viewset=ViajeViewSet, basename='viaje')
 router.register(prefix='parada', viewset=ParadaViewSet, basename='parada')
 router.register(prefix='ubicacion', viewset=UbicacionViewSet, basename='ubicacion')
+router.register(prefix='estado-diario', viewset=EstadoViajeDiarioViewSet, basename='estado-diario')
 
 urlpatterns = router.urls
