@@ -16,15 +16,41 @@ from .serializers import (TerminalSerializer, EmpresaSerializer, EmpleadoSeriali
                           PasajeroSerializer, ViajeSerializer, ParadaSerializer, UbicacionSerializer, EstadoViajeDiarioSerializer)
 from .permissions import EsPersonalEmpresaOReadOnly, EsEncargadoOSuperuser, EsEmpleadoOSuperuserOReadOnly, EsPasajeroOInvitado
 
+from drf_spectacular.utils import (
+    extend_schema,
+    extend_schema_view,
+    OpenApiParameter,
+    OpenApiResponse
+)
+
 from django.contrib.auth import get_user_model
 UsuarioBase = get_user_model()
 
 # --- Vistas Básicas ---
 
+@extend_schema_view(
+    list=extend_schema(summary="Listar terminales"),
+    retrieve=extend_schema(summary="Obtener terminal"),
+    create=extend_schema(summary="Crear terminal"),
+    update=extend_schema(summary="Actualizar terminal"),
+    partial_update=extend_schema(summary="Actualizar parcialmente viaje"),
+    destroy=extend_schema(summary="Eliminar terminal")
+)
+
 class TerminalViewSet(viewsets.ModelViewSet):
     queryset = Terminal.objects.all()
     serializer_class = TerminalSerializer
     permission_classes = [IsAdminUser]
+
+
+@extend_schema_view(
+    list=extend_schema(summary="Listar empresas"),
+    retrieve=extend_schema(summary="Obtener empresa"),
+    create=extend_schema(summary="Crear empresa"),
+    update=extend_schema(summary="Actualizar empresa"),
+    partial_update=extend_schema(summary="Actualizar parcialmente viaje"),
+    destroy=extend_schema(summary="Eliminar empresa")
+)
 
 class EmpresaViewSet(viewsets.ModelViewSet):
     queryset = Empresa.objects.all()
@@ -35,12 +61,30 @@ class EmpresaViewSet(viewsets.ModelViewSet):
     filterset_class = EmpresaFilter
 
 
+@extend_schema_view(
+    list=extend_schema(summary="Listar paradas"),
+    retrieve=extend_schema(summary="Obtener paradas"),
+    create=extend_schema(summary="Crear paradas"),
+    update=extend_schema(summary="Actualizar paradas"),
+    partial_update=extend_schema(summary="Actualizar parcialmente viaje"),
+    destroy=extend_schema(summary="Eliminar paradas")
+)
+
 class ParadaViewSet(viewsets.ModelViewSet):
     queryset = Parada.objects.all()
     serializer_class = ParadaSerializer
     permission_classes = [EsPersonalEmpresaOReadOnly]
 
 # --- Vistas Complejas ---
+
+@extend_schema_view(
+    list=extend_schema(summary="Listar pasajero"),
+    retrieve=extend_schema(summary="Obtener pasajero"),
+    create=extend_schema(summary="Crear pasajero"),
+    update=extend_schema(summary="Actualizar pasajero"),
+    partial_update=extend_schema(summary="Actualizar parcialmente pasajero"),
+    destroy=extend_schema(summary="Eliminar pasajero")
+)
 
 class PasajeroViewSet(viewsets.ModelViewSet):
     serializer_class = PasajeroSerializer
@@ -89,6 +133,14 @@ class PasajeroViewSet(viewsets.ModelViewSet):
     
 
 
+@extend_schema_view(
+    list=extend_schema(summary="Listar empleado"),
+    retrieve=extend_schema(summary="Obtener empleado"),
+    create=extend_schema(summary="Crear empleado"),
+    update=extend_schema(summary="Actualizar empleado"),
+    partial_update=extend_schema(summary="Actualizar parcialmente empleado"),
+    destroy=extend_schema(summary="Eliminar empleado")
+)
 
 class EmpleadoViewSet(viewsets.ModelViewSet):
     serializer_class = EmpleadoSerializer
@@ -117,6 +169,19 @@ class EmpleadoViewSet(viewsets.ModelViewSet):
         if not username or not password or not dni:
             return Response({"error": "DNI, username y password son obligatorios."}, status=status.HTTP_400_BAD_REQUEST)
 
+        # Validación extra para superusuarios (requieren mandar el ID de la empresa)
+        if request.user.is_superuser:
+            empresa_id = request.data.get('empresa')
+            if not empresa_id:
+                return Response({"error": "Como superusuario, debe especificar el ID de la 'empresa' a la que pertenecerá el empleado."}, status=status.HTTP_400_BAD_REQUEST)
+            try:
+                empresa_asignada = Empresa.objects.get(id=empresa_id)
+            except Empresa.DoesNotExist:
+                return Response({"error": "La empresa especificada no existe."}, status=status.HTTP_400_BAD_REQUEST)
+        else:
+            # Si es encargado, lo asignamos a su misma empresa
+            empresa_asignada = request.user.empleado.empresa
+
         UsuarioBase = get_user_model()
 
         # Chequeamos si el DNI o el Username ya existen
@@ -138,7 +203,7 @@ class EmpleadoViewSet(viewsets.ModelViewSet):
         # 3. Creamos el perfil de Empleado
         nuevo_empleado = Empleado.objects.create(
             usuario=nuevo_usuario,
-            empresa=empresa_encargado,
+            empresa=empresa_asignada,
             rol=rol
         )
 
@@ -147,6 +212,27 @@ class EmpleadoViewSet(viewsets.ModelViewSet):
 
     
 
+@extend_schema_view(
+    list=extend_schema(
+        summary="Listar ubicaciones"
+    ),
+    retrieve=extend_schema(
+        summary="Obtener ubicación"
+    ),
+    create=extend_schema(
+        summary="Crear ubicación",
+        description="Valida automáticamente la ubicación mediante OpenStreetMap Nominatim."
+    ),
+    update=extend_schema(
+        summary="Actualizar ubicación"
+    ),
+    partial_update=extend_schema(
+        summary="Actualizar parcialmente ubicación"
+    ),
+    destroy=extend_schema(
+        summary="Eliminar ubicación"
+    )
+)
 
 class UbicacionViewSet(viewsets.ModelViewSet):
     queryset = Ubicacion.objects.all()
@@ -195,7 +281,26 @@ class UbicacionViewSet(viewsets.ModelViewSet):
             return Response({'error': 'Respuesta inválida del servidor de mapas.'}, status=status.HTTP_502_BAD_GATEWAY)
 
 
-
+@extend_schema_view(
+    list=extend_schema(
+        summary="Listar viajes"
+    ),
+    retrieve=extend_schema(
+        summary="Obtener viaje"
+    ),
+    create=extend_schema(
+        summary="Crear viaje"
+    ),
+    update=extend_schema(
+        summary="Actualizar viaje"
+    ),
+    partial_update=extend_schema(
+        summary="Actualizar parcialmente viaje"
+    ),
+    destroy=extend_schema(
+        summary="Eliminar viaje"
+    )
+)
 
 class ViajeViewSet(viewsets.ModelViewSet):
     queryset = Viaje.objects.all()
@@ -220,6 +325,20 @@ class ViajeViewSet(viewsets.ModelViewSet):
     def perform_create(self, serializer):
         serializer.save(empresa=self.request.user.empleado.empresa)
 
+
+    @extend_schema(
+        summary="Actualizar estado diario",
+        description="""
+        Permite registrar el estado de un viaje
+        para una fecha determinada.
+
+        Puede indicarse:
+        - estado
+        - demora_minutos
+        - motivo
+        - fecha
+        """
+    )
     @action(detail=True, methods=['post'], permission_classes=[IsAuthenticated])
     def actualizar_estado_diario(self, request, pk=None):
         viaje = self.get_object()
@@ -247,7 +366,14 @@ class ViajeViewSet(viewsets.ModelViewSet):
         registro.save()
 
         return Response({'status': 'Estado diario actualizado correctamente', 'estado': registro.estado})
-
+    
+    @extend_schema(
+    summary="Pantalla de terminal",
+    description="""
+    Muestra los últimos viajes que partieron
+    y los próximos viajes programados.
+    """
+    )
     @action(detail=False, methods=['get'])
     def pantalla_terminal(self, request):
         # Lógica para las pantallas de la terminal: Mostrar los últimos 2 viajes que partieron (ordenados por hora de embarque descendente) y 
@@ -260,6 +386,38 @@ class ViajeViewSet(viewsets.ModelViewSet):
             'proximos_arribos': ViajeSerializer(proximos, many=True).data
         })
 
+    @extend_schema(
+    summary="Buscar viajes",
+    description="""
+    Busca viajes por destino y día de la semana.
+
+    También puede filtrarse por terminal.
+    """,
+    parameters=[
+        OpenApiParameter(
+            name="destino",
+            type=str,
+            required=True,
+            description="Nombre del destino"
+        ),
+        OpenApiParameter(
+            name="dia",
+            type=str,
+            required=True,
+            description="LUNES, MARTES, MIERCOLES, etc."
+        ),
+        OpenApiParameter(
+            name="terminal_id",
+            type=int,
+            required=False,
+            description="ID de la terminal"
+        ),
+    ],
+    responses={
+        200: OpenApiResponse(description="Viajes encontrados"),
+        404: OpenApiResponse(description="No se encontraron viajes")
+    }
+    )
     @action(detail=False, methods=['post', 'get'], permission_classes=[AllowAny])
     def buscar_viajes(self, request):
         # Obtenemos los datos (soporta tanto GET params como POST body para ser flexibles)
@@ -334,9 +492,30 @@ class ViajeViewSet(viewsets.ModelViewSet):
 
         return Response(resultado)
 
+@extend_schema_view(
+    list=extend_schema(
+        summary="Listar estados diarios"
+    ),
+    retrieve=extend_schema(
+        summary="Obtener estado diario"
+    ),
+    create=extend_schema(
+        summary="Crear estado diario"
+    ),
+    update=extend_schema(
+        summary="Actualizar estado diario"
+    ),
+    partial_update=extend_schema(
+        summary="Actualizar parcialmente estado diario"
+    ),
+    destroy=extend_schema(
+        summary="Eliminar estado diario"
+    )
+)
+
 class EstadoViajeDiarioViewSet(viewsets.ModelViewSet):
     queryset = EstadoViajeDiario.objects.all()
     serializer_class = EstadoViajeDiarioSerializer
     permission_classes = [IsAuthenticated]
     filter_backends = [DjangoFilterBackend]
-    filterset_fields = ['viaje', 'fecha', 'estado']
+    filterset_fields = ['viaje', 'fecha', 'estado']
