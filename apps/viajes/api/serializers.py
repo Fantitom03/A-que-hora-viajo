@@ -100,25 +100,10 @@ class PasajeroSerializer(serializers.ModelSerializer):
 # --- Modelos Clave del Sistema ---
     
 class UbicacionSerializer(serializers.ModelSerializer):
-    clima = serializers.SerializerMethodField()
 
     class Meta:
         model = Ubicacion
-        fields = ['id', 'nombre_oficial', 'latitud', 'longitud', 'clima']
-
-    def get_clima(self, obj):
-        # Consumo de la API de OpenWeatherMap para obtener el clima actual basado en latitud y longitud
-        url = "https://api.openweathermap.org/data/2.5/weather"
-        api_key = getattr(settings, 'OPENWEATHER_API_KEY', '')
-        params = {'lat': obj.latitud, 'lon': obj.longitud, 'appid': api_key, 'units': 'metric', 'lang': 'es'}
-        try:
-            response = requests.get(url, params=params, timeout=3)
-            if response.status_code == 200:
-                data = response.json()
-                return {'temperatura': data['main']['temp'], 'descripcion': data['weather'][0]['description']}
-        except requests.exceptions.RequestException:
-            return {'error': 'Servicio de clima no disponible'}
-        return {'info': 'No disponible'}
+        fields = ['id', 'nombre_oficial', 'latitud', 'longitud']
 
     # Al interceptar la validación, redondeamos la latitud y longitud a 6 decimales para asegurar el formato correcto, y validamos que estén dentro de los rangos permitidos.
     def validate_latitud(self, value):

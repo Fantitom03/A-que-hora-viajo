@@ -88,6 +88,28 @@ class EsPersonalEmpresaOReadOnly(permissions.BasePermission):
             return obj.viaje.empresa == request.user.empleado.empresa
         return False
 
+class EsPersonalEmpresa(permissions.BasePermission):
+    """
+    MANEJO DE PERMISOS DE VIAJES Y ESTADOS ESTRICTO
+    Solo permite el acceso a Empleados (y superusuarios).
+    No permite acceso a pasajeros ni invitados.
+    """
+    def has_permission(self, request, view):
+        if not request.user or not request.user.is_authenticated:
+            return False
+        return request.user.is_superuser or hasattr(request.user, 'empleado')
+
+    def has_object_permission(self, request, view, obj):
+        if request.user.is_superuser:
+            return True
+        if hasattr(request.user, 'empleado'):
+            if hasattr(obj, 'empresa'):
+                return obj.empresa == request.user.empleado.empresa
+            if hasattr(obj, 'viaje'):
+                return obj.viaje.empresa == request.user.empleado.empresa
+        return False
+
+
 class EsPasajeroOInvitado(permissions.BasePermission):
     """
     Permiso para el PasajeroViewSet:

@@ -14,7 +14,7 @@ from apps.viajes.api.services.weather_service import obtener_pronostico, calcula
 from ..models import Terminal, Empresa, Empleado, Pasajero, Viaje, Parada, Ubicacion, EstadoViajeDiario
 from .serializers import (TerminalSerializer, EmpresaSerializer, EmpleadoSerializer, 
                           PasajeroSerializer, ViajeSerializer, ParadaSerializer, UbicacionSerializer, EstadoViajeDiarioSerializer)
-from .permissions import EsPersonalEmpresaOReadOnly, EsEncargadoOSuperuser, EsEmpleadoOSuperuserOReadOnly, EsPasajeroOInvitado
+from .permissions import EsPersonalEmpresaOReadOnly, EsEncargadoOSuperuser, EsEmpleadoOSuperuserOReadOnly, EsPasajeroOInvitado, EsPersonalEmpresa
 
 from drf_spectacular.utils import (
     extend_schema,
@@ -302,7 +302,7 @@ class UbicacionViewSet(viewsets.ModelViewSet):
 class ViajeViewSet(viewsets.ModelViewSet):
     queryset = Viaje.objects.all()
     serializer_class = ViajeSerializer
-    permission_classes = [EsPersonalEmpresaOReadOnly]
+    permission_classes = [EsPersonalEmpresa]
 
     filter_backends = [DjangoFilterBackend]
     filterset_class = ViajeFilter
@@ -312,12 +312,13 @@ class ViajeViewSet(viewsets.ModelViewSet):
         Filtrado de viajes según el rol del usuario: 
         - Superusuarios ven todo
         - Empleados ven solo su empresa
-        - Otros usuarios no autenticados ven todo (o podrían no ver nada dependiendo de la lógica de permisos).
+        - Otros usuarios no ven nada
         '''
         user = self.request.user
+        if not user or not user.is_authenticated: return Viaje.objects.none()
         if user.is_superuser: return Viaje.objects.all()
         if hasattr(user, 'empleado'): return Viaje.objects.filter(empresa=user.empleado.empresa)
-        return Viaje.objects.all()
+        return Viaje.objects.none()
 
     def perform_create(self, serializer):
         serializer.save(empresa=self.request.user.empleado.empresa)
@@ -336,7 +337,7 @@ class ViajeViewSet(viewsets.ModelViewSet):
         - fecha
         """
     )
-    @action(detail=True, methods=['post'], permission_classes=[IsAuthenticated])
+    @action(detail=True, methods=['post'])
     def actualizar_estado_diario(self, request, pk=None):
         viaje = self.get_object()
         minutos = request.data.get('demora_minutos')
@@ -379,7 +380,7 @@ class ViajeViewSet(viewsets.ModelViewSet):
         )
     ]
     )
-    @action(detail=False, methods=['get'])
+    @action(detail=False, methods=['get'], permission_classes=[AllowAny])
     def pantalla_terminal(self, request):
         qs = self.get_queryset()
 
@@ -572,6 +573,16 @@ class ViajeViewSet(viewsets.ModelViewSet):
 class EstadoViajeDiarioViewSet(viewsets.ModelViewSet):
     queryset = EstadoViajeDiario.objects.all()
     serializer_class = EstadoViajeDiarioSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [EsPersonalEmpresa]
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ['viaje', 'fecha', 'estado']
+
+    def get_queryset(self):
+        user = self.request.user
+        if not user or not user.is_authenticated:
+            return EstadoViajeDiario.objects.none()
+        if user.is_superuser:
+            return EstadoViajeDiario.objects.all()
+        if hasattr(user, 'empleado'):
+            return EstadoViajeDiario.objects.filter(viaje__empresa=user.empleado.empresa)
+        return EstadoViajeDiario.objects.none()
