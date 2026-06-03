@@ -484,6 +484,7 @@ class ViajeViewSet(viewsets.ModelViewSet):
                     "terminal_nombre": viaje.empresa.terminal.nombre if viaje.empresa.terminal else None,
                     "terminal_id": str(viaje.empresa.terminal.id) if viaje.empresa.terminal else None,
                     "destino_solicitado": parada.ubicacion.nombre_oficial,
+                    "hora_salida_original": viaje.horario_embarcacion.strftime("%H:%M"),
                     "hora_salida": salida_estimada.time().strftime("%H:%M"),
                     "hora_arribo_estimada": llegada.time().strftime("%H:%M"),
                     "precio": parada.precio,
