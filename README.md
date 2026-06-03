@@ -37,6 +37,69 @@ Sistema backend desarrollado con **Django REST Framework** para la gestión de t
 
 ---
 
+# 🔗 Endpoints de la API
+
+La API expone los siguientes endpoints accesibles mediante HTTP y autenticación basada en JWT:
+
+### 🔑 Autenticación (SimpleJWT)
+- `POST /api/token/` - Obtención de tokens de acceso y actualización (JWT). Parámetros: `username`, `password`.
+- `POST /api/token/refresh/` - Renovación del token de acceso expirado. Parámetros: `refresh`.
+
+### 🏢 Terminales
+- `GET /api/terminal/` - Listar todas las terminales físicas.
+- `POST /api/terminal/` - Crear una nueva terminal (Solo **Superusuario**).
+- `GET /api/terminal/{id}/` - Obtener información detallada de una terminal.
+- `PUT/PATCH /api/terminal/{id}/` - Modificar datos de una terminal (Solo **Superusuario**).
+- `DELETE /api/terminal/{id}/` - Eliminar una terminal (Solo **Superusuario**).
+
+### 🏢 Empresas
+- `GET /api/empresa/` - Listar y filtrar empresas de colectivos.
+- `POST /api/empresa/` - Crear una nueva empresa (Solo **Superusuario**).
+- `GET /api/empresa/{id}/` - Obtener detalles de una empresa.
+- `PUT/PATCH /api/empresa/{id}/` - Modificar datos de una empresa (Solo **Superusuario**).
+- `DELETE /api/empresa/{id}/` - Eliminar una empresa (Solo **Superusuario**).
+
+### 👨‍💼 Empleados
+- `GET /api/empleado/` - Listar empleados (los encargados ven los de su empresa; superusuarios ven todos).
+- `POST /api/empleado/` - Registrar un nuevo empleado vinculándolo a un usuario base y asignando un rol (`ENCARGADO`, `VENTANILLA`). Si el emisor es Superusuario, debe indicar el ID de la `empresa`. Parámetros: `username`, `dni`, `password`, `first_name`, `last_name`, `rol`.
+- `GET /api/empleado/{id}/` - Detalles de un empleado.
+- `PUT/PATCH /api/empleado/{id}/` - Modificar datos de un empleado.
+- `DELETE /api/empleado/{id}/` - Eliminar empleado (Solo **Encargado/Superusuario**).
+
+### 👤 Pasajeros
+- `POST /api/pasajero/` - Registrar públicamente un nuevo pasajero. Parámetros: `username`, `dni`, `password`, `telefono`, `first_name`, `last_name`.
+- `GET /api/pasajero/` - Ver el perfil del pasajero autenticado.
+- `PUT/PATCH /api/pasajero/{id}/` - Modificar perfil de pasajero.
+
+### 📍 Ubicaciones
+- `GET /api/ubicacion/` - Listar ubicaciones geográficas.
+- `POST /api/ubicacion/` - Crear una ubicación (Solo **Empleado/Superusuario**). Valida automáticamente el nombre mediante **OpenStreetMap Nominatim** para obtener y sanitizar latitud y longitud oficiales. Parámetros: `nombre_oficial`.
+- `GET /api/ubicacion/{id}/` - Detalles de una ubicación.
+
+### 🗺️ Viajes y Recorridos
+- `GET /api/viaje/` - Listar todos los viajes. Si el usuario es empleado, solo ve los pertenecientes a su empresa.
+- `POST /api/viaje/` - Crear un nuevo viaje asociándolo automáticamente a la empresa del empleado creador.
+- `GET /api/viaje/{id}/` - Detalles completos del viaje, incluyendo paradas ordenadas.
+- `PUT/PATCH /api/viaje/{id}/` - Modificar un viaje (Solo **Empleado de la empresa/Superusuario**).
+- `DELETE /api/viaje/{id}/` - Eliminar un viaje.
+- **Acciones avanzadas:**
+  - `GET /api/viaje/buscar_viajes/?destino={lugar}&dia={LUNES-DOMINGO}&terminal_id={uuid_opcional}` - Buscador inteligente. Realiza búsquedas accent-insensitive y parciales sobre los destinos de las paradas, calcula el horario estimado de llegada a esa parada sumando la duración y demoras actuales del día, y consulta a **OpenWeatherMap** para obtener el pronóstico climático estimado en el momento preciso de arribo. También ejecuta la evaluación del estado lazy para actualizar a `EN_VIAJE` o `FINALIZADO` según la hora actual.
+  - `GET /api/viaje/pantalla_terminal/?terminal_id={uuid_opcional}` - Consulta de arribos y salidas programadas del día actual de una terminal en específico, ordenadas cronológicamente para la pantalla de información al público.
+  - `POST /api/viaje/{id}/actualizar_estado_diario/` - Permite a los empleados registrar o actualizar las novedades operativas de un viaje para una fecha determinada. Parámetros en JSON: `estado` (`A_TIEMPO`, `EN_VIAJE`, `ABORDANDO`, `DEMORADO`, `FINALIZADO`, `CANCELADO`), `demora_minutos`, `motivo`, `fecha` (`YYYY-MM-DD`).
+
+### 🛑 Paradas
+- `GET /api/parada/` - Listar paradas intermedias de los recorridos.
+- `POST /api/parada/` - Crear parada con orden, precio y tiempo transcurrido desde la salida.
+- `PUT/PATCH /api/parada/{id}/` - Modificar parada.
+- `DELETE /api/parada/{id}/` - Eliminar parada.
+
+### 📅 Estados Diarios
+- `GET /api/estado-diario/` - Listar todos los registros de novedades diarias de viajes.
+- `POST /api/estado-diario/` - Crear un nuevo registro de estado diario.
+- `GET/PUT/PATCH/DELETE /api/estado-diario/{id}/` - Administrar estados de días específicos.
+
+---
+
 # ⚙️ Instalación del proyecto
 
 ## 📥 1. Clonar repositorio
@@ -90,6 +153,7 @@ http://127.0.0.1:8000/
 ## 📚 Swagger / Documentación API
 ### 🧾 Swagger UI
 http://127.0.0.1:8000/api/docs/
+
 
 ### 📄 OpenAPI Schema
 http://127.0.0.1:8000/api/schema/

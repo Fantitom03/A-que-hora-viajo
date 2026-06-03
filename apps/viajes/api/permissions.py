@@ -2,7 +2,7 @@ from rest_framework import permissions
 
 class EsEmpleadoOSuperuserOReadOnly(permissions.BasePermission):
     """
-    PERMISOS BASADOS EN ATRIBUTOS DEL USUARIO (PROGRAMÁTICOS)
+    PERMISOS BASADOS EN ATRIBUTOS DEL USUARIO
     ----------------------------------------------------------
     A diferencia de DjangoModelPermissions, que requiere configurar Grupos y Permisos
     manualmente en el Panel de Administración de Django, esta clase evalúa los permisos
@@ -48,7 +48,7 @@ class EsEncargadoOSuperuser(permissions.BasePermission):
 
 class EsPersonalEmpresaOReadOnly(permissions.BasePermission):
     """
-    MANEJO DE PERMISOS DE VIAJES Y PARADAS (PROGRAMÁTICO)
+    MANEJO DE PERMISOS DE VIAJES Y PARADAS
     -----------------------------------------------------
     En lugar de utilizar `DjangoModelPermissions` (que requeriría crear grupos 
     "Administradores de Terminal" en el Panel de Admin y asignar permisos modelo 
