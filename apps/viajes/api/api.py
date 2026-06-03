@@ -243,7 +243,9 @@ class UbicacionViewSet(viewsets.ModelViewSet):
         # Integración con Nominatim para validar y corregir la ubicación ingresada por el usuario. Si el lugar no se encuentra, se devuelve un error.
         nombre_buscado = request.data.get('nombre_oficial')
         url = "https://nominatim.openstreetmap.org/search"
+        # Parámetros para la búsqueda: el nombre ingresado, formato JSON, y limitamos a 1 resultado para obtener la coincidencia más relevante.
         params = {'q': nombre_buscado, 'format': 'json', 'limit': 1}
+        # Incluimos un User-Agent personalizado para cumplir con las políticas de Nominatim.
         headers = {'User-Agent': 'API_Terminal_Omnibus_v1'}
 
         try:
@@ -254,6 +256,7 @@ class UbicacionViewSet(viewsets.ModelViewSet):
             if resultados:
                 lugar = resultados[0]
 
+                # Redondeamos latitud y longitud a 6 decimales por *OpenWeatherMap* y para mantener consistencia en la base de datos, evitando problemas de precisión o formato.
                 lat_redondeada = round(float(lugar['lat']), 6)
                 lon_redondeada = round(float(lugar['lon']), 6)
                 
@@ -314,6 +317,8 @@ class ViajeViewSet(viewsets.ModelViewSet):
         - Empleados ven solo su empresa
         - Otros usuarios no ven nada
         '''
+        # Si bien ya en permisos se restringe el acceso, aquí aseguramos que la consulta de viajes también esté limitada a lo que 
+        # corresponde según el rol del usuario, para evitar cualquier filtrado accidental o bypass.
         user = self.request.user
         if not user or not user.is_authenticated: return Viaje.objects.none()
         if user.is_superuser: return Viaje.objects.all()
@@ -339,6 +344,7 @@ class ViajeViewSet(viewsets.ModelViewSet):
     )
     @action(detail=True, methods=['post'])
     def actualizar_estado_diario(self, request, pk=None):
+        # El permiso EsPersonalEmpresa se encarga de validar que el viaje pertenezca a la empresa del empleado autenticado.
         viaje = self.get_object()
         minutos = request.data.get('demora_minutos')
         motivo = request.data.get('motivo')
@@ -352,6 +358,7 @@ class ViajeViewSet(viewsets.ModelViewSet):
 
         registro, created = EstadoViajeDiario.objects.get_or_create(viaje=viaje, fecha=fecha_registro)
         
+        # Si se envía un nuevo estado explícito, lo actualizamos. Si se envía una demora sin estado, asumimos que el viaje está demorado.
         if minutos is not None:
             registro.tiempo_demora = timezone.timedelta(minutes=int(minutos))
         if motivo is not None:
@@ -380,6 +387,9 @@ class ViajeViewSet(viewsets.ModelViewSet):
         )
     ]
     )
+    # Gracias al permission_classes=[AllowAny], esta vista puede ser accedida sin autenticación, lo que es ideal para mostrar información en 
+    # pantallas públicas de la terminal sin necesidad de login. Sin embargo, si se proporciona un terminal_id, 
+    #se filtrarán los viajes para esa terminal específica, lo que permite flexibilidad para diferentes pantallas dentro de la misma terminal o incluso para uso interno.
     @action(detail=False, methods=['get'], permission_classes=[AllowAny])
     def pantalla_terminal(self, request):
         qs = self.get_queryset()
@@ -394,6 +404,10 @@ class ViajeViewSet(viewsets.ModelViewSet):
         qs = qs.filter(dias_operativos__contains=[hoy_dia])
 
         ahora = datetime.now().time()
+
+        # Mostramos los últimos 2 viajes que ya partieron (ordenados de más reciente a menos reciente) 
+        # Y los próximos viajes que aún no partieron (ordenados de más próximo a más lejano). 
+        # Esto permite a los pasajeros en la terminal tener una visión clara de qué viajes acaban de salir y cuáles están por salir, ayudándolos a orientarse mejor.
         ya_partieron = qs.filter(horario_embarcacion__lt=ahora).order_by('-horario_embarcacion')[:2]
         proximos = qs.filter(horario_embarcacion__gte=ahora).order_by('horario_embarcacion')
         return Response({
@@ -433,6 +447,10 @@ class ViajeViewSet(viewsets.ModelViewSet):
         404: OpenApiResponse(description="No se encontraron viajes")
     }
     )
+    # Gracias al permission_classes=[AllowAny], esta vista puede ser accedida sin autenticación para permitir que pasajeros e incluso usuarios 
+    # no registrados puedan buscar viajes disponibles, lo que es fundamental para la funcionalidad principal de la aplicación. Sin embargo, al ser una 
+    # búsqueda pública, se implementan filtros robustos para asegurar que los resultados sean relevantes y precisos, evitando mostrar información 
+    # innecesaria o incorrecta a los usuarios.
     @action(detail=False, methods=['post', 'get'], permission_classes=[AllowAny])
     def buscar_viajes(self, request):
         # Obtenemos los datos (soporta tanto GET params como POST body para ser flexibles)
@@ -500,12 +518,17 @@ class ViajeViewSet(viewsets.ModelViewSet):
             demora = registro.tiempo_demora if registro else timezone.timedelta(minutes=0)
 
             # --- Lógica Lazy FINALIZADO / EN_VIAJE ---
+            # Para evitar tener que actualizar el estado de todos los viajes cada vez que se consulta, implementamos una lógica 
+            # perezosa que calcula el estado "EN_VIAJE" o "FINALIZADO" al momento de consultar, solo para los viajes que podrían 
+            # haber cambiado de estado desde la última actualización.
             if not registro or registro.estado not in ['FINALIZADO', 'CANCELADO']:
                 from datetime import datetime, timedelta
+                # Calculamos la hora estimada de llegada a la parada, sumando al horario de embarque el tiempo que tarda en llegar a esa parada
                 base_datetime = datetime.combine(fecha_viaje, viaje.horario_embarcacion)
                 llegada_final_viaje = base_datetime + viaje.duracion + demora
                 ahora = datetime.now()
                 
+
                 nuevo_estado = None
                 if ahora > llegada_final_viaje + timedelta(hours=1):
                     nuevo_estado = 'FINALIZADO'
@@ -523,14 +546,16 @@ class ViajeViewSet(viewsets.ModelViewSet):
                     else:
                         registro.estado = nuevo_estado
                         registro.save()
-            # ----------------------------------------
             
+            # Si el viaje tiene un registro diario para la fecha del viaje, mostramos su estado y demora. Si no, asumimos que está a tiempo sin demora.
             estado = registro.estado if registro else 'A_TIEMPO'
             motivo_demora = registro.motivo_demora if registro else None
             demora = registro.tiempo_demora if registro else timezone.timedelta(minutes=0)
 
             llegada = calcular_llegada(viaje, parada, dia, demora)
 
+            # Para enriquecer aún más la información, obtenemos el pronóstico del clima para la ubicación de la parada y 
+            # la hora estimada de llegada, lo que puede ser útil para los pasajeros al planificar su viaje.
             clima = obtener_pronostico(parada.ubicacion.latitud, parada.ubicacion.longitud, llegada)
 
             resultado.append({
@@ -574,10 +599,12 @@ class EstadoViajeDiarioViewSet(viewsets.ModelViewSet):
     queryset = EstadoViajeDiario.objects.all()
     serializer_class = EstadoViajeDiarioSerializer
     permission_classes = [EsPersonalEmpresa]
+
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ['viaje', 'fecha', 'estado']
 
     def get_queryset(self):
+        # El Superadmin ve todo. El Empleado ve solo los estados de los viajes de su empresa. Otros usuarios no ven nada.
         user = self.request.user
         if not user or not user.is_authenticated:
             return EstadoViajeDiario.objects.none()

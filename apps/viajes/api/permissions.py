@@ -20,6 +20,7 @@ class EsEmpleadoOSuperuserOReadOnly(permissions.BasePermission):
     def has_permission(self, request, view):
         if request.method in permissions.SAFE_METHODS:
             return True
+        # Si no hay usuario o no está autenticado, no tiene permiso para escribir
         if not request.user or not request.user.is_authenticated:
             return False
         # Si es superusuario o si tiene el perfil de empleado asociado, pasa.
@@ -49,23 +50,10 @@ class EsEncargadoOSuperuser(permissions.BasePermission):
 class EsPersonalEmpresaOReadOnly(permissions.BasePermission):
     """
     MANEJO DE PERMISOS DE VIAJES Y PARADAS
-    -----------------------------------------------------
-    En lugar de utilizar `DjangoModelPermissions` (que requeriría crear grupos 
-    "Administradores de Terminal" en el Panel de Admin y asignar permisos modelo 
-    por modelo), implementamos validación por lógica de negocio.
+    - Lectura (GET, HEAD, OPTIONS): Permitida para todos (incluyendo pasajeros e invitados).
+    - Escritura (POST, PUT, DELETE): Solo Superusuarios o usuarios que tengan un perfil de Empleado.
     
-    ¿Por qué esta aproximación?
-    1. Automatización: Un empleado hereda permisos instantáneamente por el solo
-       hecho de estar asociado a una `empresa` (sin depender del Panel Admin).
-    2. Aislamiento Multi-Tenant: `DjangoModelPermissions` verifica si un usuario
-       puede "Crear un Viaje" en general, pero NO valida de qué empresa es el viaje.
-       Nuestra lógica de `has_object_permission` garantiza que un empleado solo 
-       puede editar los viajes o paradas que pertenecen a SU propia empresa, 
-       algo que los grupos genéricos de Django no pueden restringir fácilmente.
-    
-    Reglas:
-    - Pasajeros: Solo lectura.
-    - Empleados: Solo ven/modifican datos de SU propia empresa.
+    Además, para modificaciones a nivel de objeto, se verifica que el viaje o parada pertenezcan a la empresa del empleado autenticado.
     """
     def has_permission(self, request, view):
         if request.method in permissions.SAFE_METHODS:

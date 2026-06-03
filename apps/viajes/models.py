@@ -3,7 +3,7 @@ from django.db import models
 from datetime import timedelta
 from django.contrib.postgres.fields import ArrayField
 
-# 1. Configuración de la Terminal (Usaremos un modelo de fila única)
+# 1. Configuración de la Terminal
 class Terminal(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     nombre = models.CharField(max_length=100, default="Terminal Central")
