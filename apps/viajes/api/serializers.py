@@ -41,9 +41,59 @@ class EmpresaSerializer(serializers.ModelSerializer):
         return data
 
 class EmpleadoSerializer(serializers.ModelSerializer):
+    username = serializers.CharField(write_only=True)
+    password = serializers.CharField(write_only=True, style={'input_type': 'password'})
+    first_name = serializers.CharField(write_only=True, required=False, allow_blank=True)
+    last_name = serializers.CharField(write_only=True, required=False, allow_blank=True)
+    dni = serializers.CharField(write_only=True)
+    empresa = serializers.PrimaryKeyRelatedField(queryset=Empresa.objects.all(), required=False)
+    rol = serializers.ChoiceField(choices=Empleado.ROLES, default='VENTANILLA')
+
     class Meta:
         model = Empleado
-        fields = ['id', 'usuario', 'empresa', 'rol']
+        fields = ['id', 'username', 'password', 'first_name', 'last_name', 'dni', 'usuario', 'empresa', 'rol']
+        read_only_fields = ['usuario']
+
+    def validate(self, attrs):
+        request = self.context.get('request')
+        if not request:
+            return attrs
+            
+        if request.method == 'POST':
+            username = attrs.get('username')
+            dni = attrs.get('dni')
+            
+            # Verificamos duplicados
+            if UsuarioBase.objects.filter(username=username).exists() or UsuarioBase.objects.filter(dni=dni).exists():
+                raise serializers.ValidationError({"error": "Este DNI o username ya está registrado como usuario en el sistema."})
+                
+            # Si es superusuario, debe mandar la empresa
+            if request.user.is_superuser:
+                if 'empresa' not in attrs:
+                    raise serializers.ValidationError({"empresa": "Como superusuario, debe especificar el ID de la 'empresa' a la que pertenecerá el empleado."})
+            else:
+                # Si es encargado, lo asignamos a su misma empresa automáticamente
+                attrs['empresa'] = request.user.empleado.empresa
+                
+        return attrs
+
+    def create(self, validated_data):
+        username = validated_data.pop('username')
+        password = validated_data.pop('password')
+        first_name = validated_data.pop('first_name', '')
+        last_name = validated_data.pop('last_name', '')
+        dni = validated_data.pop('dni')
+        
+        nuevo_usuario = UsuarioBase.objects.create_user(
+            username=username,
+            dni=dni,
+            password=password,
+            first_name=first_name,
+            last_name=last_name
+        )
+        
+        empleado = Empleado.objects.create(usuario=nuevo_usuario, **validated_data)
+        return empleado
 
     # Representación del empleado, muestra el username y el nombre de la empresa.
     def to_representation(self, instance):
@@ -139,6 +189,18 @@ class PasajeroSerializer(serializers.ModelSerializer):
     def validate(self, attrs):
         # Obtenemos el request para saber qué método HTTP estamos usando
         request = self.context.get('request')
+        
+        # Validación de unicidad en la creación
+        if request and request.method == 'POST':
+            username = attrs.get('username')
+            dni = attrs.get('dni')
+            telefono = attrs.get('telefono')
+            
+            if UsuarioBase.objects.filter(username=username).exists() or UsuarioBase.objects.filter(dni=dni).exists():
+                raise serializers.ValidationError({"error": "Este usuario o DNI ya está registrado."})
+            
+            if Pasajero.objects.filter(telefono=telefono).exists():
+                raise serializers.ValidationError({"error": "Este teléfono ya está registrado."})
         
         # Solo aplicamos esta restricción si estamos actualizando (PUT o PATCH)
         # Un usuario común es aquel que NO es superadmin ni empleado.
@@ -248,33 +310,8 @@ class ViajeSerializer(serializers.ModelSerializer):
                 pass
         
         if not hasattr(obj, f'_registro_{fecha_consulta}'):
-            registro = obj.estados_diarios.filter(fecha=fecha_consulta).first()
-            
-            # Lógica Lazy FINALIZADO y EN_VIAJE
-            if not registro or registro.estado not in ['FINALIZADO', 'CANCELADO']:
-                base_datetime = datetime.combine(fecha_consulta, obj.horario_embarcacion)
-                demora = registro.tiempo_demora if registro else timedelta(minutes=0)
-                llegada = base_datetime + obj.duracion + demora
-                ahora = datetime.now()
-
-                nuevo_estado = None
-                if ahora > llegada + timedelta(hours=1):
-                    nuevo_estado = 'FINALIZADO'
-                elif ahora >= base_datetime + demora and (not registro or registro.estado == 'A_TIEMPO'):
-                    nuevo_estado = 'EN_VIAJE'
-
-                if nuevo_estado:
-                    if not registro:
-                        registro = EstadoViajeDiario.objects.create(
-                            viaje=obj,
-                            fecha=fecha_consulta,
-                            estado=nuevo_estado,
-                            tiempo_demora=demora
-                        )
-                    else:
-                        registro.estado = nuevo_estado
-                        registro.save()
-            
+            from apps.viajes.api.services.viajes_service import actualizar_estado_viaje_lazy
+            registro = actualizar_estado_viaje_lazy(obj, fecha_consulta)
             setattr(obj, f'_registro_{fecha_consulta}', registro)
         return getattr(obj, f'_registro_{fecha_consulta}')
 

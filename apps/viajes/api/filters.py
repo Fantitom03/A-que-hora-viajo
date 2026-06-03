@@ -4,6 +4,8 @@ from ..models import Viaje, Empresa
 class ViajeFilter(filters.FilterSet):
     
     empresa = filters.CharFilter(field_name='empresa__nombre', lookup_expr='icontains')
+    
+    terminal_id = filters.UUIDFilter(field_name='empresa__terminal__id')
 
     estado = filters.CharFilter(method='filtrar_por_estado')
 
@@ -28,9 +30,9 @@ class ViajeFilter(filters.FilterSet):
         return queryset.filter(plataformas_asignadas__contains=[value])
     
     def filtrar_por_estado(self, queryset, name, value):
-        from datetime import date, datetime, timedelta
+        from datetime import date, datetime
         from django.db.models import Q
-        from ..models import EstadoViajeDiario
+        from apps.viajes.api.services.viajes_service import actualizar_estado_viaje_lazy
         
         estado_buscado = value.upper()
 
@@ -45,7 +47,6 @@ class ViajeFilter(filters.FilterSet):
 
         # Para que el filtro funcione con estados calculados perezosamente (EN_VIAJE, FINALIZADO),
         # primero forzamos la actualización de los viajes que podrían estar desactualizados.
-        ahora = datetime.now()
         
         # Obtenemos viajes que no tienen registro hoy, o que están 'A_TIEMPO'
         viajes_potenciales = queryset.filter(
@@ -54,28 +55,9 @@ class ViajeFilter(filters.FilterSet):
         )
         
         for viaje in viajes_potenciales:
-            registro = viaje.estados_diarios.filter(fecha=fecha_consulta).first()
-            base_datetime = datetime.combine(fecha_consulta, viaje.horario_embarcacion)
-            demora = registro.tiempo_demora if registro else timedelta(minutes=0)
-            llegada = base_datetime + viaje.duracion + demora
-            
-            nuevo_estado = None
-            if ahora > llegada + timedelta(hours=1):
-                nuevo_estado = 'FINALIZADO'
-            elif ahora >= base_datetime + demora:
-                nuevo_estado = 'EN_VIAJE'
-                
-            if nuevo_estado:
-                if not registro:
-                    EstadoViajeDiario.objects.create(
-                        viaje=viaje,
-                        fecha=fecha_consulta,
-                        estado=nuevo_estado,
-                        tiempo_demora=demora
-                    )
-                else:
-                    registro.estado = nuevo_estado
-                    registro.save()
+            # Llamamos a nuestro servicio de actualización perezosa de estados de viajes, 
+            # que actualiza el estado del viaje si es necesario y lo persiste en la base de datos.
+            actualizar_estado_viaje_lazy(viaje, fecha_consulta)
 
         # Ahora que la BD está al día, filtramos correctamente
         if estado_buscado == 'A_TIEMPO':

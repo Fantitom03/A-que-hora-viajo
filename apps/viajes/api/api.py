@@ -14,7 +14,7 @@ from apps.viajes.api.services.weather_service import obtener_pronostico, calcula
 from ..models import Terminal, Empresa, Empleado, Pasajero, Viaje, Parada, Ubicacion, EstadoViajeDiario
 from .serializers import (TerminalSerializer, EmpresaSerializer, EmpleadoSerializer, 
                           PasajeroSerializer, ViajeSerializer, ParadaSerializer, UbicacionSerializer, EstadoViajeDiarioSerializer)
-from .permissions import EsPersonalEmpresaOReadOnly, EsEncargadoOSuperuser, EsEmpleadoOSuperuserOReadOnly, EsPasajeroOInvitado, EsPersonalEmpresa
+from .permissions import EsEncargadoOSuperuser, EsEmpleadoOSuperuserOReadOnly, EsPasajeroOInvitado, EsPersonalEmpresa
 
 from drf_spectacular.utils import (
     extend_schema,
@@ -71,9 +71,27 @@ class EmpresaViewSet(viewsets.ModelViewSet):
 )
 
 class ParadaViewSet(viewsets.ModelViewSet):
-    queryset = Parada.objects.all()
     serializer_class = ParadaSerializer
-    permission_classes = [EsPersonalEmpresaOReadOnly]
+    permission_classes = [EsPersonalEmpresa]
+
+    def get_queryset(self):
+        user = self.request.user
+        if not user or not user.is_authenticated: 
+            return Parada.objects.none()
+        
+        qs = Parada.objects.all()
+        terminal_id = self.request.query_params.get('terminal_id')
+        
+        if user.is_superuser:
+            if terminal_id:
+                qs = qs.filter(viaje__empresa__terminal__id=terminal_id)
+            return qs
+        
+        if hasattr(user, 'empleado'):
+            # Empleados solo ven las paradas de sus viajes
+            return qs.filter(viaje__empresa=user.empleado.empresa)
+            
+        return Parada.objects.none()
 
 # --- Vistas Complejas ---
 
@@ -98,43 +116,7 @@ class PasajeroViewSet(viewsets.ModelViewSet):
             return Pasajero.objects.all() 
         return Pasajero.objects.filter(usuario=user)
 
-    def create(self, request, *args, **kwargs):
-        # 1. Atrapamos el DNI también
-        username = request.data.get('username')
-        dni = request.data.get('dni')
-        password = request.data.get('password')
-        first_name = request.data.get('first_name', '')
-        last_name = request.data.get('last_name', '')
-        telefono = request.data.get('telefono')
 
-        # Exigimos el DNI en la validación
-        if not username or not password or not telefono or not dni:
-            return Response({"error": "username, dni, password y telefono son obligatorios."}, status=status.HTTP_400_BAD_REQUEST)
-
-        UsuarioBase = get_user_model()
-        
-        # Chequeamos si el Username O el DNI ya existen
-        if UsuarioBase.objects.filter(username=username).exists() or UsuarioBase.objects.filter(dni=dni).exists():
-            return Response({"error": "Este usuario o DNI ya está registrado."}, status=status.HTTP_400_BAD_REQUEST)
-
-        # Chequeamos si el telefono ya existe
-        if Pasajero.objects.filter(telefono=telefono).exists():
-            return Response({"error": "Este teléfono ya está registrado."}, status=status.HTTP_400_BAD_REQUEST)
-
-        # 2. Pasamos el DNI a la creación del usuario base
-        nuevo_usuario = UsuarioBase.objects.create_user(
-            username=username,
-            dni=dni,
-            password=password,
-            first_name=first_name,
-            last_name=last_name
-        )
-        
-        pasajero = Pasajero.objects.create(usuario=nuevo_usuario, telefono=telefono)
-        
-        serializer = self.get_serializer(pasajero)
-        return Response(serializer.data, status=status.HTTP_201_CREATED)
-    
 
 
 @extend_schema_view(
@@ -160,58 +142,7 @@ class EmpleadoViewSet(viewsets.ModelViewSet):
             return Empleado.objects.filter(empresa=user.empleado.empresa)
         return Empleado.objects.none()
 
-    # Registro plano para el encargado
-    def create(self, request, *args, **kwargs):
-        username = request.data.get('username')  
-        dni = request.data.get('dni')
-        password = request.data.get('password')
-        first_name = request.data.get('first_name', '')
-        last_name = request.data.get('last_name', '')
-        rol = request.data.get('rol', 'VENTANILLA')
 
-        # Exigimos también el DNI
-        if not username or not password or not dni:
-            return Response({"error": "DNI, username y password son obligatorios."}, status=status.HTTP_400_BAD_REQUEST)
-
-        # Validación extra para superusuarios (requieren mandar el ID de la empresa)
-        if request.user.is_superuser:
-            empresa_id = request.data.get('empresa')
-            if not empresa_id:
-                return Response({"error": "Como superusuario, debe especificar el ID de la 'empresa' a la que pertenecerá el empleado."}, status=status.HTTP_400_BAD_REQUEST)
-            try:
-                empresa_asignada = Empresa.objects.get(id=empresa_id)
-            except Empresa.DoesNotExist:
-                return Response({"error": "La empresa especificada no existe."}, status=status.HTTP_400_BAD_REQUEST)
-        else:
-            # Si es encargado, lo asignamos a su misma empresa
-            empresa_asignada = request.user.empleado.empresa
-
-        UsuarioBase = get_user_model()
-
-        # Chequeamos si el DNI o el Username ya existen
-        if UsuarioBase.objects.filter(username=username).exists() or UsuarioBase.objects.filter(dni=dni).exists():
-            return Response({"error": "Este DNI o username ya está registrado como usuario en el sistema."}, status=status.HTTP_400_BAD_REQUEST)
-
-        # 1. Creamos el usuario base de Django pasándole el DNI
-        nuevo_usuario = UsuarioBase.objects.create_user(
-            username=username,
-            dni=dni,
-            password=password,
-            first_name=first_name,
-            last_name=last_name
-        )
-
-        # 3. Creamos el perfil de Empleado
-        nuevo_empleado = Empleado.objects.create(
-            usuario=nuevo_usuario,
-            empresa=empresa_asignada,
-            rol=rol
-        )
-
-        serializer = self.get_serializer(nuevo_empleado)
-        return Response(serializer.data, status=status.HTTP_201_CREATED)
-
-    
 
 @extend_schema_view(
     list=extend_schema(
@@ -396,7 +327,9 @@ class ViajeViewSet(viewsets.ModelViewSet):
     #se filtrarán los viajes para esa terminal específica, lo que permite flexibilidad para diferentes pantallas dentro de la misma terminal o incluso para uso interno.
     @action(detail=False, methods=['get'], permission_classes=[AllowAny])
     def pantalla_terminal(self, request):
-        qs = self.get_queryset()
+        # En lugar de self.get_queryset() (que devuelve none para usuarios no logueados),
+        # obtenemos todos y filtramos explícitamente, ya que esto es público.
+        qs = Viaje.objects.all()
 
         terminal_id = request.query_params.get('terminal_id')
         if terminal_id:
@@ -414,6 +347,10 @@ class ViajeViewSet(viewsets.ModelViewSet):
         # Esto permite a los pasajeros en la terminal tener una visión clara de qué viajes acaban de salir y cuáles están por salir, ayudándolos a orientarse mejor.
         ya_partieron = qs.filter(horario_embarcacion__lt=ahora).order_by('-horario_embarcacion')[:2]
         proximos = qs.filter(horario_embarcacion__gte=ahora).order_by('horario_embarcacion')
+        
+        if not ya_partieron.exists() and not proximos.exists():
+            return Response({"mensaje": "No hay viajes programados para el día de hoy en esta terminal."}, status=200)
+
         return Response({
             'recientemente_partidos': ViajeSerializer(ya_partieron, many=True, context={'request': request}).data,
             'proximos_arribos': ViajeSerializer(proximos, many=True, context={'request': request}).data
@@ -465,6 +402,10 @@ class ViajeViewSet(viewsets.ModelViewSet):
         if not destino or not dia:
             return Response({"error": "Debe enviar destino y dia de semana"}, status=400)
 
+        # Limpiamos posibles comillas extra que pueda enviar el cliente en la URL
+        destino = destino.strip("'\"")
+        dia = dia.strip("'\"")
+
         # Lógica para determinar el día de la semana a partir de la fecha ingresada
         dia = dia.upper()
 
@@ -514,7 +455,7 @@ class ViajeViewSet(viewsets.ModelViewSet):
         # Respuesta detallada de cada viaje encontrado, con cálculo exacto de la hora estimada de llegada a la parada solicitada, 
         # considerando el horario de embarque, el tiempo desde la salida a esa parada y cualquier demora informada.
         for viaje in viajes:
-            parada = viaje.paradas.filter(ubicacion__nombre_oficial__iregex=regex_term).first()
+            paradas_coincidentes = viaje.paradas.filter(ubicacion__nombre_oficial__iregex=regex_term)
             
             fecha_viaje = obtener_fecha_proxima(dia)
             registro = viaje.estados_diarios.filter(fecha=fecha_viaje).first()
@@ -523,58 +464,36 @@ class ViajeViewSet(viewsets.ModelViewSet):
 
             # --- Lógica Lazy FINALIZADO / EN_VIAJE ---
             # Para evitar tener que actualizar el estado de todos los viajes cada vez que se consulta, implementamos una lógica 
-            # perezosa que calcula el estado "EN_VIAJE" o "FINALIZADO" al momento de consultar, solo para los viajes que podrían 
-            # haber cambiado de estado desde la última actualización.
-            if not registro or registro.estado not in ['FINALIZADO', 'CANCELADO']:
-                from datetime import datetime, timedelta
-                # Calculamos la hora estimada de llegada a la parada, sumando al horario de embarque el tiempo que tarda en llegar a esa parada
-                base_datetime = datetime.combine(fecha_viaje, viaje.horario_embarcacion)
-                llegada_final_viaje = base_datetime + viaje.duracion + demora
-                ahora = datetime.now()
-                
-
-                nuevo_estado = None
-                if ahora > llegada_final_viaje + timedelta(hours=1):
-                    nuevo_estado = 'FINALIZADO'
-                elif ahora >= base_datetime + demora and (not registro or registro.estado == 'A_TIEMPO'):
-                    nuevo_estado = 'EN_VIAJE'
-
-                if nuevo_estado:
-                    if not registro:
-                        registro = EstadoViajeDiario.objects.create(
-                            viaje=viaje,
-                            fecha=fecha_viaje,
-                            estado=nuevo_estado,
-                            tiempo_demora=demora
-                        )
-                    else:
-                        registro.estado = nuevo_estado
-                        registro.save()
+            # perezosa centralizada que se actualiza bajo demanda utilizando el servicio correspondiente.
+            from apps.viajes.api.services.viajes_service import actualizar_estado_viaje_lazy
+            registro = actualizar_estado_viaje_lazy(viaje, fecha_viaje)
             
             # Si el viaje tiene un registro diario para la fecha del viaje, mostramos su estado y demora. Si no, asumimos que está a tiempo sin demora.
             estado = registro.estado if registro else 'A_TIEMPO'
             motivo_demora = registro.motivo_demora if registro else None
             demora = registro.tiempo_demora if registro else timezone.timedelta(minutes=0)
 
-            llegada = calcular_llegada(viaje, parada, dia, demora)
+            # Por CADA parada que coincida con la búsqueda, agregamos un resultado independiente
+            for parada in paradas_coincidentes:
+                llegada = calcular_llegada(viaje, parada, dia, demora)
 
-            # Para enriquecer aún más la información, obtenemos el pronóstico del clima para la ubicación de la parada y 
-            # la hora estimada de llegada, lo que puede ser útil para los pasajeros al planificar su viaje.
-            clima = obtener_pronostico(parada.ubicacion.latitud, parada.ubicacion.longitud, llegada)
+                # Para enriquecer aún más la información, obtenemos el pronóstico del clima para la ubicación de la parada y 
+                # la hora estimada de llegada, lo que puede ser útil para los pasajeros al planificar su viaje.
+                clima = obtener_pronostico(parada.ubicacion.latitud, parada.ubicacion.longitud, llegada)
 
-            resultado.append({
-                "empresa": viaje.empresa.nombre,
-                "terminal_nombre": viaje.empresa.terminal.nombre if viaje.empresa.terminal else None,
-                "terminal_id": str(viaje.empresa.terminal.id) if viaje.empresa.terminal else None,
-                "destino_solicitado": parada.ubicacion.nombre_oficial,
-                "hora_salida": viaje.horario_embarcacion.strftime("%H:%M"),
-                "hora_arribo_estimada": llegada.time().strftime("%H:%M"),
-                "precio": parada.precio,
-                "clima_estimado" : clima,
-                "estado": estado,
-                "motivo_demora": motivo_demora,
-                "demora_minutos": int(demora.total_seconds() / 60)
-            })
+                resultado.append({
+                    "empresa": viaje.empresa.nombre,
+                    "terminal_nombre": viaje.empresa.terminal.nombre if viaje.empresa.terminal else None,
+                    "terminal_id": str(viaje.empresa.terminal.id) if viaje.empresa.terminal else None,
+                    "destino_solicitado": parada.ubicacion.nombre_oficial,
+                    "hora_salida": viaje.horario_embarcacion.strftime("%H:%M"),
+                    "hora_arribo_estimada": llegada.time().strftime("%H:%M"),
+                    "precio": parada.precio,
+                    "clima_estimado" : clima,
+                    "estado": estado,
+                    "motivo_demora": motivo_demora,
+                    "demora_minutos": int(demora.total_seconds() / 60)
+                })
 
         return Response(resultado)
 

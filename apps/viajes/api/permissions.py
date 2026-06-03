@@ -47,35 +47,6 @@ class EsEncargadoOSuperuser(permissions.BasePermission):
             return obj.empresa == request.user.empleado.empresa
         return False
 
-class EsPersonalEmpresaOReadOnly(permissions.BasePermission):
-    """
-    MANEJO DE PERMISOS DE VIAJES Y PARADAS
-    - Lectura (GET, HEAD, OPTIONS): Permitida para todos (incluyendo pasajeros e invitados).
-    - Escritura (POST, PUT, DELETE): Solo Superusuarios o usuarios que tengan un perfil de Empleado.
-    
-    Además, para modificaciones a nivel de objeto, se verifica que el viaje o parada pertenezcan a la empresa del empleado autenticado.
-    """
-    def has_permission(self, request, view):
-        if request.method in permissions.SAFE_METHODS:
-            return True
-        
-        # Solo los usuarios autenticados con perfil de Empleado pueden hacer modificaciones a nivel de colección (POST)
-        return request.user.is_authenticated and hasattr(request.user, 'empleado')
-
-    # Para acciones específicas sobre objetos (PUT, PATCH, DELETE sobre un viaje o parada)
-    def has_object_permission(self, request, view, obj):
-        if request.method in permissions.SAFE_METHODS:
-            return True
-        # El superusuario de la terminal tiene control total siempre
-        if request.user.is_superuser:
-            return True
-        # Se verifica que el viaje o la parada pertenezcan estrictamente a la empresa del empleado
-        if hasattr(obj, 'empresa'):
-            return obj.empresa == request.user.empleado.empresa
-        if hasattr(obj, 'viaje'):
-            return obj.viaje.empresa == request.user.empleado.empresa
-        return False
-
 class EsPersonalEmpresa(permissions.BasePermission):
     """
     MANEJO DE PERMISOS DE VIAJES Y ESTADOS ESTRICTO
