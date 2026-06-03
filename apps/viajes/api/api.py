@@ -94,7 +94,7 @@ class PasajeroViewSet(viewsets.ModelViewSet):
         user = self.request.user
         if not user or not user.is_authenticated:
             return Pasajero.objects.none()
-        if user.is_superuser:
+        if user.is_superuser or hasattr(user, 'empleado'):
             return Pasajero.objects.all() 
         return Pasajero.objects.filter(usuario=user)
 
@@ -116,6 +116,10 @@ class PasajeroViewSet(viewsets.ModelViewSet):
         # Chequeamos si el Username O el DNI ya existen
         if UsuarioBase.objects.filter(username=username).exists() or UsuarioBase.objects.filter(dni=dni).exists():
             return Response({"error": "Este usuario o DNI ya está registrado."}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Chequeamos si el telefono ya existe
+        if Pasajero.objects.filter(telefono=telefono).exists():
+            return Response({"error": "Este teléfono ya está registrado."}, status=status.HTTP_400_BAD_REQUEST)
 
         # 2. Pasamos el DNI a la creación del usuario base
         nuevo_usuario = UsuarioBase.objects.create_user(

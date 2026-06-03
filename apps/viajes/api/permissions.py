@@ -115,5 +115,8 @@ class EsPasajeroOInvitado(permissions.BasePermission):
         # El superusuario de la terminal puede auditar todo si quiere
         if request.user.is_superuser:
             return True
+        # Los empleados pueden ver los datos de todos los pasajeros
+        if hasattr(request.user, 'empleado'):
+            return True
         # El pasajero solo puede ver o editar SU propio objeto de perfil
         return obj.usuario == request.user

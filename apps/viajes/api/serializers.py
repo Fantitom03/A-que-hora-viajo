@@ -56,34 +56,73 @@ class EmpleadoSerializer(serializers.ModelSerializer):
         return representation
 
 class PasajeroSerializer(serializers.ModelSerializer):
-    # Declaramos los campos planos (saqué el 'source' porque los vamos a manejar manualmente en el create())
-    username = serializers.CharField(write_only=True)
-    password = serializers.CharField(write_only=True, style={'input_type': 'password'})
-    first_name = serializers.CharField(write_only=True)
-    last_name = serializers.CharField(write_only=True)
+    # Declaramos los campos planos. Los hacemos opcionales (required=False) para que los PATCH parciales funcionen bien sin obligar a mandar contraseña siempre.
+    username = serializers.CharField(write_only=True, required=False)
+    password = serializers.CharField(write_only=True, style={'input_type': 'password'}, required=False)
+    first_name = serializers.CharField(write_only=True, required=False)
+    last_name = serializers.CharField(write_only=True, required=False)
+    dni = serializers.CharField(write_only=True, required=False)
 
     class Meta:
         model = Pasajero
-        fields = ['id', 'username', 'password', 'first_name', 'last_name', 'telefono']
+        fields = ['id', 'username', 'password', 'first_name', 'last_name', 'dni', 'telefono', 'recibir_alertas']
 
     def create(self, validated_data):
         # 1. Sacamos los campos sueltos que vinieron en la raíz del JSON
         username = validated_data.pop('username')
         password = validated_data.pop('password')
-        first_name = validated_data.pop('first_name')
-        last_name = validated_data.pop('last_name')
+        first_name = validated_data.pop('first_name', '')
+        last_name = validated_data.pop('last_name', '')
+        dni = validated_data.pop('dni', '')
         
         # 2. Creamos el usuario base encriptando su contraseña
         nuevo_usuario = UsuarioBase.objects.create_user(
             username=username,
             password=password,
             first_name=first_name,
-            last_name=last_name
+            last_name=last_name,
+            dni=dni
         )
         
         # 3. Creamos el perfil del pasajero atado a ese usuario
         pasajero = Pasajero.objects.create(usuario=nuevo_usuario, **validated_data)
         return pasajero
+
+    def update(self, instance, validated_data):
+        # 1. Separamos los datos que corresponden al UsuarioBase
+        username = validated_data.pop('username', None)
+        password = validated_data.pop('password', None)
+        first_name = validated_data.pop('first_name', None)
+        last_name = validated_data.pop('last_name', None)
+        dni = validated_data.pop('dni', None)
+        
+        # 2. Actualizamos el perfil del pasajero (telefono, recibir_alertas) con lo que quede
+        instance = super().update(instance, validated_data)
+        
+        # 3. Actualizamos el UsuarioBase si nos pasaron algún dato
+        usuario = instance.usuario
+        modificado = False
+        
+        if username is not None:
+            usuario.username = username
+            modificado = True
+        if first_name is not None:
+            usuario.first_name = first_name
+            modificado = True
+        if last_name is not None:
+            usuario.last_name = last_name
+            modificado = True
+        if dni is not None:
+            usuario.dni = dni
+            modificado = True
+        if password is not None:
+            usuario.set_password(password) # set_password maneja la encriptación automáticamente
+            modificado = True
+            
+        if modificado:
+            usuario.save()
+            
+        return instance
 
     # En la representación del pasajero, se muestra el username y el nombre completo del usuario asociado en lugar de su ID.
     def to_representation(self, instance):
@@ -95,6 +134,28 @@ class PasajeroSerializer(serializers.ModelSerializer):
         }
         
         return representation
+    
+    # Método para validar los datos del serializer para que el usuario común no pueda modificar datos que no debe.
+    def validate(self, attrs):
+        # Obtenemos el request para saber qué método HTTP estamos usando
+        request = self.context.get('request')
+        
+        # Solo aplicamos esta restricción si estamos actualizando (PUT o PATCH)
+        # Un usuario común es aquel que NO es superadmin ni empleado.
+        is_admin_o_empleado = request.user.is_superuser or hasattr(request.user, 'empleado')
+        if request and request.method in ['PUT', 'PATCH'] and not is_admin_o_empleado:
+            
+            # Verificamos si el usuario común intenta mandar datos que no debe
+            campos_bloqueados = ['username', 'password', 'first_name', 'last_name', 'dni']
+            
+            for campo in campos_bloqueados:
+                if campo in request.data:
+                    raise serializers.ValidationError({
+                        "error": f"No tienes autorización para modificar '{campo}'. Si necesitas cambiar tus datos personales, por favor comunícate con un administrador o empleado por ventanilla."
+                    })
+                     
+        return attrs
+
 
 
 # --- Modelos Clave del Sistema ---
