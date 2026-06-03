@@ -458,10 +458,21 @@ class ViajeViewSet(viewsets.ModelViewSet):
         if dia not in dias_validos:
             return Response({"error": "Dia invalido"}, status=400)
 
+        import re
+        destino_limpio = destino.translate(str.maketrans('áéíóúÁÉÍÓÚ', 'aeiouAEIOU'))
+        regex_term = ''
+        for char in destino_limpio:
+            if char.lower() == 'a': regex_term += '[aAáÁ]'
+            elif char.lower() == 'e': regex_term += '[eEéÉ]'
+            elif char.lower() == 'i': regex_term += '[iIíÍ]'
+            elif char.lower() == 'o': regex_term += '[oOóÓ]'
+            elif char.lower() == 'u': regex_term += '[uUúÚ]'
+            else: regex_term += re.escape(char)
+
         # Filtramos por día operativo y destino solicitado, usando el campo ArrayField para los días operativos y buscando coincidencias en las paradas del viaje.
         filtros = {
             'dias_operativos__contains': [dia],
-            'paradas__ubicacion__nombre_oficial__icontains': destino
+            'paradas__ubicacion__nombre_oficial__iregex': regex_term
         }
         
         if terminal_id:
@@ -480,7 +491,7 @@ class ViajeViewSet(viewsets.ModelViewSet):
         # Respuesta detallada de cada viaje encontrado, con cálculo exacto de la hora estimada de llegada a la parada solicitada, 
         # considerando el horario de embarque, el tiempo desde la salida a esa parada y cualquier demora informada.
         for viaje in viajes:
-            parada = viaje.paradas.filter(ubicacion__nombre_oficial__icontains=destino).first()
+            parada = viaje.paradas.filter(ubicacion__nombre_oficial__iregex=regex_term).first()
             
             fecha_viaje = obtener_fecha_proxima(dia)
             registro = viaje.estados_diarios.filter(fecha=fecha_viaje).first()
