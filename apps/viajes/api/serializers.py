@@ -294,6 +294,7 @@ class ViajeSerializer(serializers.ModelSerializer):
     estado = serializers.SerializerMethodField()
     demora = serializers.SerializerMethodField()
     motivo_demora = serializers.SerializerMethodField()
+    horario_embarcacion_actualizado = serializers.SerializerMethodField()
 
     class Meta:
         model = Viaje
@@ -340,6 +341,20 @@ class ViajeSerializer(serializers.ModelSerializer):
         base_datetime = datetime.combine(fecha_consulta, obj.horario_embarcacion)
         demora = self.get_demora(obj)
         resultado = base_datetime + obj.duracion + demora
+        return resultado.time().strftime("%H:%M")
+
+    def get_horario_embarcacion_actualizado(self, obj):
+        request = self.context.get('request')
+        fecha_consulta = date.today()
+        if request and request.query_params.get('fecha'):
+            try:
+                fecha_consulta = datetime.strptime(request.query_params.get('fecha'), "%Y-%m-%d").date()
+            except ValueError:
+                pass
+
+        base_datetime = datetime.combine(fecha_consulta, obj.horario_embarcacion)
+        demora = self.get_demora(obj)
+        resultado = base_datetime + demora
         return resultado.time().strftime("%H:%M")
 
     # Validacion de días operativos

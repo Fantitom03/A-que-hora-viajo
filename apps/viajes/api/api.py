@@ -478,12 +478,13 @@ class ViajeViewSet(viewsets.ModelViewSet):
                 # la hora estimada de llegada, lo que puede ser útil para los pasajeros al planificar su viaje.
                 clima = obtener_pronostico(parada.ubicacion.latitud, parada.ubicacion.longitud, llegada)
 
+                salida_estimada = datetime.combine(fecha_viaje, viaje.horario_embarcacion) + demora
                 resultado.append({
                     "empresa": viaje.empresa.nombre,
                     "terminal_nombre": viaje.empresa.terminal.nombre if viaje.empresa.terminal else None,
                     "terminal_id": str(viaje.empresa.terminal.id) if viaje.empresa.terminal else None,
                     "destino_solicitado": parada.ubicacion.nombre_oficial,
-                    "hora_salida": viaje.horario_embarcacion.strftime("%H:%M"),
+                    "hora_salida": salida_estimada.time().strftime("%H:%M"),
                     "hora_arribo_estimada": llegada.time().strftime("%H:%M"),
                     "precio": parada.precio,
                     "clima_estimado" : clima,
@@ -522,6 +523,9 @@ class EstadoViajeDiarioViewSet(viewsets.ModelViewSet):
 
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ['viaje', 'fecha', 'estado']
+    #Ordenar por fecha descendente
+    ordering_fields = ['fecha']
+    ordering = ['-fecha']
 
     def get_queryset(self):
         # El Superadmin ve todo. El Empleado ve solo los estados de los viajes de su empresa. Otros usuarios no ven nada.
