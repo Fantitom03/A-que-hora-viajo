@@ -298,7 +298,6 @@ class ViajeSerializer(serializers.ModelSerializer):
     class Meta:
         model = Viaje
         fields = '__all__'
-        read_only_fields = ['empresa']
 
     def get_registro_hoy(self, obj):
         request = self.context.get('request')
@@ -311,6 +310,8 @@ class ViajeSerializer(serializers.ModelSerializer):
         
         if not hasattr(obj, f'_registro_{fecha_consulta}'):
             from apps.viajes.api.services.viajes_service import actualizar_estado_viaje_lazy
+            # Llamamos a nuestro servicio de actualización perezosa de estados de viajes, 
+            # que actualiza el estado del viaje si es necesario y lo persiste en la base de datos.
             registro = actualizar_estado_viaje_lazy(obj, fecha_consulta)
             setattr(obj, f'_registro_{fecha_consulta}', registro)
         return getattr(obj, f'_registro_{fecha_consulta}')

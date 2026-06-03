@@ -260,9 +260,6 @@ class ViajeViewSet(viewsets.ModelViewSet):
         if hasattr(user, 'empleado'): return Viaje.objects.filter(empresa=user.empleado.empresa)
         return Viaje.objects.none()
 
-    def perform_create(self, serializer):
-        serializer.save(empresa=self.request.user.empleado.empresa)
-
 
     @extend_schema(
         summary="Actualizar estado diario",
