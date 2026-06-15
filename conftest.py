@@ -49,6 +49,27 @@ def empleado(empresa):
     )
 
 @pytest.fixture
+def empresa_b(terminal):
+    return Empresa.objects.create(
+        nombre="Empresa B Test",
+        ventanilla=2,
+        terminal=terminal
+    )
+
+@pytest.fixture
+def empleado_b(empresa_b):
+    usuario = Usuario.objects.create_user(
+        username="empleado_b",
+        dni="999888777",
+        password="123"
+    )
+    return Empleado.objects.create(
+        usuario=usuario,
+        empresa=empresa_b,
+        rol="VENTANILLA"
+    )
+
+@pytest.fixture
 def pasajero():
     usuario = Usuario.objects.create_user(
         username="pasajero",
