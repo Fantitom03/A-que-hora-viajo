@@ -277,11 +277,28 @@ class ParadaSerializer(serializers.ModelSerializer):
     
     # Validacion de duplicidad de orden y ubicación en el mismo viaje
     def validate(self, data):
-        # Valida que no se repita el orden ni la ubicación en el mismo viaje
-        if Parada.objects.filter(viaje=data['viaje'], orden=data['orden']).exists():
-            raise serializers.ValidationError("Ya existe una parada con ese orden en el viaje")
-        if Parada.objects.filter(viaje=data['viaje'], ubicacion=data['ubicacion']).exists():
-            raise serializers.ValidationError("La ubicación ya existe en este viaje")
+
+        queryset = Parada.objects.all()
+
+        if self.instance:
+            queryset = queryset.exclude(pk=self.instance.pk)
+
+        if queryset.filter(
+            viaje=data['viaje'],
+            orden=data['orden']
+        ).exists():
+            raise serializers.ValidationError(
+                "Ya existe una parada con ese orden en el viaje"
+            )
+
+        if queryset.filter(
+            viaje=data['viaje'],
+            ubicacion=data['ubicacion']
+        ).exists():
+            raise serializers.ValidationError(
+                "La ubicación ya existe en este viaje"
+            )
+
         return data
 
 
