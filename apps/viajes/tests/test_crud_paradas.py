@@ -61,7 +61,7 @@ def test_actualizar_parada(api_client, empleado, parada):
         format="json"
     )
 
-    print(response.data)
+
     assert response.status_code == 200
 
     parada.refresh_from_db()
