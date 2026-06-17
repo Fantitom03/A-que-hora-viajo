@@ -16,11 +16,9 @@ def test_registrar_demora_viaje(api_client, empleado, viaje):
     
     assert response.status_code == 200
     
-    # Refrescamos el viaje desde la base de datos para obtener el estado actual
+    # refrescamos la instancia del viaje para que se reflejen los cambios en la base de datos
     viaje.refresh_from_db()
     
-    # El método actualizar_estado_diario crea un registro en EstadoViajeDiario para el día de hoy
-    # Usamos hoy ya que el test hace el post sin especificar fecha (asume hoy)
     fecha_hoy = timezone.localdate()
     registro = viaje.estados_diarios.filter(fecha=fecha_hoy).first()
     

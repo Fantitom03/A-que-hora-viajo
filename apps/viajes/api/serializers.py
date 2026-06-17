@@ -389,7 +389,6 @@ class ViajeSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("La duración debe ser mayor a cero")
         return data
     
-    # Validación de horario de embarcación
     def validate(self, data):
         plataforma = data.get('plataformas_asignadas')
         horario = data.get('horario_embarcacion')
@@ -404,6 +403,13 @@ class ViajeSerializer(serializers.ModelSerializer):
 
         if existe:
             raise serializers.ValidationError("Ya existe un viaje usando esa plataforma, en el mismo horario y días")
+
+        request = self.context.get('request')
+        if request and hasattr(request.user, 'empleado') and not request.user.is_superuser:
+            empresa = data.get('empresa')
+            if empresa and empresa != request.user.empleado.empresa:
+                raise serializers.ValidationError({"empresa": "No tienes permiso para asignar viajes a otra empresa."})
+
         return data
 
 class EstadoViajeDiarioSerializer(serializers.ModelSerializer):

@@ -7,9 +7,12 @@ from apps.viajes.models import (Terminal, Empresa, Empleado, Pasajero, Viaje, Pa
 
 Usuario = get_user_model()
 
+# Api client que se usa para hacer peticiones a la API 
 @pytest.fixture
 def api_client():
     return APIClient()
+
+# --- Fixtures ---
 
 @pytest.fixture
 def superuser(db):
@@ -80,6 +83,19 @@ def pasajero():
     return Pasajero.objects.create(
         usuario = usuario,
         telefono = "33232342433"
+    )
+
+@pytest.fixture
+def pasajero_b(db):
+    usuario = Usuario.objects.create_user(
+        username="pasajero_b",
+        dni="99999999",
+        password="123"
+    )
+
+    return Pasajero.objects.create(
+        usuario=usuario,
+        telefono="11111111"
     )
 
 @pytest.fixture

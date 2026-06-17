@@ -32,7 +32,7 @@ def test_crear_ubicacion_con_mock_nominatim(mock_get, api_client, superuser):
 @pytest.mark.django_db
 @patch('apps.viajes.api.api.obtener_pronostico')
 def test_buscar_viajes_con_mock_clima(mock_pronostico, api_client, viaje, parada):
-    # 'viaje' y 'parada' son fixtures de conftest.py
+
     # La vista buscar_viajes permite AllowAny, por lo que no es necesario autenticarse
     
     mock_pronostico.return_value = "Soleado Mock, 25°C"
