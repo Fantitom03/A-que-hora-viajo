@@ -8,11 +8,11 @@ from apps.viajes.models import Ubicacion, Viaje, Parada
 def test_filtrar_viajes_por_destino(mock_pronostico, api_client, empresa):
     mock_pronostico.return_value = "Despejado"
     
-    # 1. Crear ubicaciones
+    # Creamos ubicaciones
     ubicacion_belen = Ubicacion.objects.create(nombre_oficial="Belen", latitud=-27.65, longitud=-67.02)
     ubicacion_salta = Ubicacion.objects.create(nombre_oficial="Salta", latitud=-24.78, longitud=-65.41)
     
-    # 2. Crear 3 viajes con destino a Belén
+    # Creamos 3 viajes con destino a Belén
     viajes_belen = []
     for i in range(3):
         v = Viaje.objects.create(
@@ -25,7 +25,7 @@ def test_filtrar_viajes_por_destino(mock_pronostico, api_client, empresa):
         Parada.objects.create(viaje=v, ubicacion=ubicacion_belen, orden=1, tiempo_desde_salida=timedelta(hours=2), precio=1000)
         viajes_belen.append(v)
         
-    # 3. Crear 2 viajes con destino a Salta
+    # Creamos 2 viajes con destino a Salta
     viajes_salta = []
     for i in range(2):
         v = Viaje.objects.create(
@@ -38,7 +38,7 @@ def test_filtrar_viajes_por_destino(mock_pronostico, api_client, empresa):
         Parada.objects.create(viaje=v, ubicacion=ubicacion_salta, orden=1, tiempo_desde_salida=timedelta(hours=1), precio=500)
         viajes_salta.append(v)
 
-    # Ejecutar búsqueda filtrando por Belén el día LUNES
+    # Ejecutamos la búsqueda filtrando por Belén el día LUNES
     response = api_client.post(
         "/api/viaje/buscar_viajes/",
         {
