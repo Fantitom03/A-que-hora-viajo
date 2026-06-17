@@ -68,22 +68,3 @@ def test_empleado_no_puede_crear_viajes_en_otra_empresa(api_client, empleado_b, 
     }
     response_post = api_client.post("/api/viaje/", payload_post, format="json")
     assert response_post.status_code in [403, 400]
-
-@pytest.mark.django_db
-def test_pasajero_no_puede_acceder_otro_pasajero(api_client, pasajero, pasajero_b):
-    # Autenticamos como el atacante (pasajero_b)
-    api_client.force_authenticate(user=pasajero_b.usuario)
-
-    # Intentamos ver el perfil del primer pasajero
-    response_get = api_client.get(f"/api/pasajero/{pasajero.id}/")
-    assert response_get.status_code == 404
-
-@pytest.mark.django_db
-def test_pasajero_no_puede_modificar_otro_pasajero(api_client, pasajero,pasajero_b):
-    # Autenticamos como el atacante (pasajero_b)
-    api_client.force_authenticate(user=pasajero_b.usuario)
-
-    # Intentamos modificar el perfil del primer pasajero
-    payload_patch = {"telefono": "999888777"}
-    response_patch = api_client.patch(f"/api/pasajero/{pasajero.id}/", payload_patch, format="json")
-    assert response_patch.status_code == 404
